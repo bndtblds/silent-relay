@@ -1,17 +1,56 @@
 services:
+  setup:
+    build: .
+    command: ["python", "-m", "app.setup"]
+    environment:
+      SILENTRELAY_CONFIG_DIR: /config
+    volumes:
+      - ./:/config
+    profiles:
+      - setup
+    restart: "no"
+  caddy:
+    image: caddy:2-alpine
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    restart: unless-stopped
   migrate:
     build: .
     command: ["alembic", "upgrade", "head"]
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     volumes:
       - silentrelay-data:/data
+    networks:
+      - backend
     restart: "no"
   web:
     build: .
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=127.0.0.1", "--no-access-log"]
-    env_file: .env
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*", "--no-access-log"]
+    env_file:
+      - path: .env
+        required: false
     volumes:
       - silentrelay-data:/data
+    networks:
+      - backend
+      - outbound
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -24,9 +63,14 @@ services:
   scheduler:
     build: .
     command: ["python", "-m", "app.scheduler.main"]
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     volumes:
       - silentrelay-data:/data
+    networks:
+      - backend
+      - outbound
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -34,3 +78,11 @@ services:
 
 volumes:
   silentrelay-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  frontend:
+  backend:
+    internal: true
+  outbound:

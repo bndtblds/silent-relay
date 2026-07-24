@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -33,7 +34,7 @@ class Settings(BaseSettings):
     account_creation_enabled: bool = True
     account_pending_retention_days: int = 7
     account_review_interval_days: int = 180
-    account_review_reminder_days: list[int] = [-30, -15, -3, 0, 30]
+    account_review_reminder_days: Annotated[list[int], NoDecode] = [-30, -15, -3, 0, 30]
     account_review_grace_days: int = 60
     account_retention_after_disable_days: int = 365
     delivery_max_attempts: int = 6
