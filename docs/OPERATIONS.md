@@ -4,6 +4,68 @@ This document contains the technical details required to deploy and maintain a
 SilentRelay installation. Start with the project [README](../README.md) for the
 short installation guide.
 
+## Install Docker on Debian 13
+
+SilentRelay requires Docker Engine with the Docker Compose plugin. The following
+example follows Docker's official installation method for Debian 13
+(`trixie`). Run these commands as `root`; otherwise prefix administrative
+commands with `sudo`.
+
+Install the repository prerequisites and Docker signing key:
+
+```sh
+apt-get update
+apt-get install -y ca-certificates curl git
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/debian/gpg \
+  -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+```
+
+Add Docker's stable package repository:
+
+```sh
+cat > /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: trixie
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+```
+
+Install and verify Docker:
+
+```sh
+apt-get update
+apt-get install -y \
+  docker-ce \
+  docker-ce-cli \
+  containerd.io \
+  docker-buildx-plugin \
+  docker-compose-plugin
+
+systemctl enable --now docker
+docker version
+docker compose version
+docker run --rm hello-world
+```
+
+For other operating systems, use the
+[official Docker Engine installation guide](https://docs.docker.com/engine/install/).
+Docker-published container ports can interact with host firewall rules; use the
+provider firewall as an additional boundary and expose only the ports required
+by SilentRelay.
+
+Create the application directory and clone the repository:
+
+```sh
+install -d /opt/silent-relay
+git clone https://github.com/bndtblds/silent-relay.git /opt/silent-relay
+cd /opt/silent-relay
+```
+
 ## Configuration
 
 The recommended installation uses `setup.sh` on Linux or `setup.ps1` on

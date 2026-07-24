@@ -43,13 +43,36 @@ replace emergency services or official arrangements.
 ## Requirements
 
 - A server with Docker Engine and Docker Compose
+- Git
 - A public domain pointing to the server
 - Publicly reachable ports `80` and `443`
 - An SMTP account for sending email
 
+Install Docker Engine and the Docker Compose plugin using the
+[official instructions for your Linux distribution](https://docs.docker.com/engine/install/).
+Package names and installation steps vary between distributions.
+
+Verify the prerequisites:
+
+```sh
+git --version
+docker version
+docker compose version
+```
+
 ## Install with Docker
 
-1. Clone the repository and enter its directory.
+1. Create the recommended application directory, clone SilentRelay, and enter
+   the repository:
+
+   ```sh
+   sudo install -d -o "$USER" -g "$USER" /opt/silent-relay
+   git clone https://github.com/bndtblds/silent-relay.git /opt/silent-relay
+   cd /opt/silent-relay
+   ```
+
+   When already working as `root`, omit `sudo`.
+
 2. Make sure the domain points to the server and ports `80` and `443` are open.
 3. Start the interactive setup:
 
