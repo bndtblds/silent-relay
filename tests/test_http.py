@@ -78,9 +78,16 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         created = client.post("/account/create", data={"csrf": hidden_value(create_form.text, "csrf")})
         assert created.status_code == 200
         assert "Zugangsdaten drucken" in created.text
+        assert 'data-copy-target="account-owner-link"' in created.text
+        assert 'aria-label="Kontoinhaber-Link kopieren"' in created.text
         assert "/static/print.js" in created.text
         setup_url = html.unescape(re.search(r'href="(http://testserver/account/setup/[^"]+)"', created.text).group(1))
-        account_owner_url = html.unescape(re.search(r'<p class="secret">(http://testserver/account/[^<]+)</p>', created.text).group(1))
+        account_owner_url = html.unescape(
+            re.search(
+                r'<p class="secret" id="account-owner-link">(http://testserver/account/[^<]+)</p>',
+                created.text,
+            ).group(1)
+        )
 
         setup_path = setup_url.removeprefix("http://testserver")
         setup_form = client.get(setup_path)
@@ -147,9 +154,16 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         )
         assert token_page.status_code == 200
         assert "QR-Code drucken" in token_page.text
+        assert 'data-copy-target="personal-access-link"' in token_page.text
+        assert 'aria-label="Persönlichen Zugangslink kopieren"' in token_page.text
         assert "/static/print.js" in token_page.text
         assert "So geht es weiter" in token_page.text
-        notify_url = html.unescape(re.search(r'<p class="secret">(http://testserver/notify/[^<]+)</p>', token_page.text).group(1))
+        notify_url = html.unescape(
+            re.search(
+                r'<p class="secret" id="personal-access-link">(http://testserver/notify/[^<]+)</p>',
+                token_page.text,
+            ).group(1)
+        )
 
         notify_path = notify_url.removeprefix("http://testserver")
         notify_form = client.get(notify_path)

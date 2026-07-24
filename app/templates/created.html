@@ -5,7 +5,18 @@
   <p class="lead">Mit diesem QR-Code oder Link öffnen Sie künftig Ihre Kontoverwaltung. Er bleibt gültig, wird aber nur jetzt im Klartext angezeigt.</p>
   <p class="warning">Der Ausdruck ermöglicht zusammen mit Ihrem Passwort den Kontozugriff. Bewahren Sie ihn sicher und nicht offen zugänglich auf.</p>
   <img class="qr-code" src="data:image/png;base64,{{ qr }}" alt="QR-Code für den Kontoinhaber-Zugang">
-  <div class="secret-block"><strong>Persönlicher Kontoinhaber-Link</strong><p class="secret">{{ account_owner_url }}</p></div>
+  <div class="secret-block">
+    <strong>Persönlicher Kontoinhaber-Link</strong>
+    <div class="secret-row">
+      <p class="secret" id="account-owner-link">{{ account_owner_url }}</p>
+      <div class="copy-control">
+        <button class="copy-button secondary" type="button" data-copy-target="account-owner-link" aria-label="Kontoinhaber-Link kopieren" title="Link kopieren">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 7V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2M5 8h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z"/></svg>
+        </button>
+        <span class="copy-status" data-copy-status aria-live="polite"></span>
+      </div>
+    </div>
+  </div>
 </article>
 <div class="screen-actions">
   <button type="button" data-print-button>Zugangsdaten drucken</button>

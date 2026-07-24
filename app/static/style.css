@@ -113,6 +113,13 @@ textarea { min-height: 12rem; resize: vertical; }
 
 .secret-block { margin: 1rem 0; }
 .secret, .message { overflow-wrap: anywhere; white-space: pre-wrap; padding: 1rem; border: 1px solid var(--border); border-radius: .4rem; background: #edf0f1; color: #111; }
+.secret-row { display: flex; align-items: stretch; gap: .55rem; }
+.secret-row .secret { flex: 1; margin: 0; text-align: left; }
+.copy-control { display: flex; align-items: center; gap: .45rem; }
+.copy-button { display: grid; flex: 0 0 auto; place-items: center; width: 3.4rem; padding: .7rem; }
+.copy-button svg { width: 1.35rem; height: 1.35rem; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.copy-status { color: var(--accent-dark); font-size: .9rem; font-weight: 750; }
+.copy-fallback { position: fixed; left: -9999px; width: 1px; height: 1px; }
 .access-sheet { margin: 1rem 0; }
 .access-sheet.centered { text-align: center; }
 .qr-code { width: min(18rem, 100%); height: auto; }
@@ -143,12 +150,14 @@ th, td { padding: .7rem; border-bottom: 1px solid var(--border); text-align: lef
   .partner-header { align-items: flex-start; }
   .inline-edit { display: block; }
   .inline-edit button { width: 100%; margin-top: .55rem; }
+  .secret-row { align-items: flex-start; }
+  .copy-control { flex-direction: column; align-items: center; }
   .screen-actions > * { width: 100%; text-align: center; }
 }
 
 @media print {
   body { color: #000; background: #fff; }
-  .site-header, .site-footer, .screen-actions, .progress, .skip-link { display: none; }
+  .site-header, .site-footer, .screen-actions, .progress, .skip-link, .copy-control { display: none; }
   main { max-width: none; padding: 0; }
   .access-sheet { border: 0; box-shadow: none; }
   .warning { border: 1px solid #000; background: #fff; color: #000; }
