@@ -33,7 +33,10 @@ def test_setup_environment_contains_valid_independent_secrets():
     assert values["CADDY_DOMAIN"] == "relay.example.org"
     assert values["CADDY_DOMAINS"] == "relay.example.org, www.relay.example.org, private.example.net"
     assert values["ADMIN_USERNAME"] == "operator"
-    assert verify_password(values["ADMIN_PASSWORD_HASH"], "correct horse battery")
+    stored_hash = values["ADMIN_PASSWORD_HASH"]
+    assert stored_hash.startswith("'$argon2id$")
+    assert stored_hash.endswith("'")
+    assert verify_password(stored_hash[1:-1], "correct horse battery")
     secrets = {
         values["TOKEN_HMAC_KEY"],
         values["FINGERPRINT_HMAC_KEY"],
@@ -72,6 +75,7 @@ def test_generated_environment_loads_as_application_settings(tmp_path, monkeypat
 
     assert settings.app_base_url == "https://relay.example.org"
     assert settings.account_review_reminder_days == [-30, -15, -3, 0, 30]
+    assert verify_password(settings.admin_password_hash, "correct horse battery")
 
 
 @pytest.mark.parametrize("domain", ["https://example.org", "localhost", "example.org:8443", "-bad.example"])

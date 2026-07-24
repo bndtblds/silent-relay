@@ -81,7 +81,10 @@ def render_environment(
     for line in template.splitlines():
         key, separator, _ = line.partition("=")
         if separator and key in replacements:
-            lines.append(f"{key}={replacements[key]}")
+            value = replacements[key]
+            if key == "ADMIN_PASSWORD_HASH":
+                value = f"'{value}'"
+            lines.append(f"{key}={value}")
             found.add(key)
         else:
             lines.append(line)
