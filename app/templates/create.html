@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block title %}Konto erstellen – SilentRelay{% endblock %}{% block content %}
+<div class="narrow">
+  <div class="progress" aria-label="Einrichtung: Schritt 1 von 3"><span class="active">1</span><span>2</span><span>3</span></div>
+  <span class="eyebrow">Schritt 1 von 3</span><h1>Konto erstellen</h1>
+  <p class="lead">Im nächsten Schritt erhalten Sie Ihren persönlichen Kontoinhaber-Link und QR-Code. Damit öffnen Sie später Ihre Kontoverwaltung.</p>
+  <div class="warning"><strong>Keine Wiederherstellung in dieser Version</strong><p>Bewahren Sie Kontoinhaber-Link und Passwort sicher und getrennt auf. Gehen beide verloren, kann das Konto nicht wiederhergestellt werden.</p></div>
+  <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="button-large" type="submit">Konto erstellen und Zugang anzeigen</button></form>
+  <p class="form-hint">Es werden in diesem Schritt noch keine persönlichen Kontaktdaten abgefragt.</p>
+</div>
+{% endblock %}

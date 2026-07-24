@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% block title %}Vertrauliche Nachricht – SilentRelay{% endblock %}{% block content %}
+<div class="narrow">
+  <div class="progress compact" aria-label="Nachricht: Schritt 1 von 2"><span class="active">1</span><span>2</span></div>
+  <span class="eyebrow">Schritt 1 von 2</span><h1>Was ist passiert?</h1>
+  <p class="lead">Beschreiben Sie die Situation kurz und sachlich. SilentRelay leitet Ihre Nachricht vertraulich weiter.</p>
+  <div class="privacy-note"><strong>Ihre Privatsphäre</strong><p>Sie sehen weder Namen noch Anzahl der Empfänger. Die Empfänger werden ausschließlich vom System bestimmt.</p></div>
+  {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+  <form class="form-card" method="post"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="message">Ihre Nachricht</label><p class="form-hint" id="message-help">10 bis 5.000 Zeichen. Bitte keine Passwörter oder unnötigen persönlichen Details eintragen.</p><textarea id="message" name="message" minlength="10" maxlength="5000" aria-describedby="message-help" required></textarea>
+    <button class="button-large">Nachricht prüfen</button>
+  </form>
+</div>
+{% endblock %}

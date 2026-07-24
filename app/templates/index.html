@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block title %}SilentRelay – vertraulich benachrichtigen{% endblock %}{% block content %}
+<section class="hero">
+  <span class="eyebrow">Selbst betrieben und datensparsam</span>
+  <h1>Im Ernstfall die richtigen Menschen erreichen – ohne Kontakte offenzulegen.</h1>
+  <p class="lead">Sie legen fest, wer benachrichtigt wird. Vertrauenspersonen erhalten nur einen geheimen QR-Code und erfahren weder Namen noch Empfängerzahl.</p>
+  {% if creation_enabled %}<a class="button button-large" href="/account/create">Eigenes Konto einrichten</a>{% else %}<p class="notice">Neue Konten können derzeit nicht erstellt werden.</p>{% endif %}
+</section>
+<section class="how-it-works" aria-labelledby="how-heading"><h2 id="how-heading">So funktioniert es</h2><ol class="step-list">
+  <li><span>1</span><div><strong>Kontakte festlegen</strong><p>Sie hinterlegen Ihre eigene Adresse und die Kontaktwege der Menschen, die benachrichtigt werden sollen.</p></div></li>
+  <li><span>2</span><div><strong>QR-Code weitergeben</strong><p>Jede Vertrauensperson erhält einen eigenen geheimen QR-Code.</p></div></li>
+  <li><span>3</span><div><strong>Nachricht vertraulich weiterleiten</strong><p>Im Ernstfall schreibt die Vertrauensperson eine Nachricht. SilentRelay ermittelt die Empfänger ausschließlich auf dem Server.</p></div></li>
+</ol></section>
+<aside class="notice"><strong>Wichtig:</strong> SilentRelay ist kein Notruf-, Medizin- oder Hochverfügbarkeitssystem.</aside>
+{% endblock %}

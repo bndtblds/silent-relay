@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>{% block title %}SilentRelay{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/ui.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Direkt zum Inhalt</a>
+  <header class="site-header"><a class="brand" href="/" aria-label="SilentRelay Startseite"><span class="brand-mark" aria-hidden="true">SR</span><span>SilentRelay</span></a><span class="brand-note">Vertrauliche Benachrichtigungen</span></header>
+  <main id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
+  <footer class="site-footer"><p>SilentRelay ersetzt keinen Notruf. Wählen Sie in akuten Notfällen die örtliche Notrufnummer.</p></footer>
+</body>
+</html>

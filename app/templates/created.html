@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block content %}
+<div class="progress" aria-label="Einrichtung: Schritt 2 von 3"><span>✓</span><span class="active">2</span><span>3</span></div>
+<article class="access-sheet">
+  <span class="eyebrow">Schritt 2 von 3</span><h1>Kontoinhaber-Zugang jetzt sichern</h1>
+  <p class="lead">Mit diesem QR-Code oder Link öffnen Sie künftig Ihre Kontoverwaltung. Er bleibt gültig, wird aber nur jetzt im Klartext angezeigt.</p>
+  <p class="warning">Der Ausdruck ermöglicht zusammen mit Ihrem Passwort den Kontozugriff. Bewahren Sie ihn sicher und nicht offen zugänglich auf.</p>
+  <img class="qr-code" src="data:image/png;base64,{{ qr }}" alt="QR-Code für den Kontoinhaber-Zugang">
+  <div class="secret-block"><strong>Persönlicher Kontoinhaber-Link</strong><p class="secret">{{ account_owner_url }}</p></div>
+</article>
+<div class="screen-actions">
+  <button type="button" data-print-button>Zugangsdaten drucken</button>
+  <a class="button" href="{{ setup_url }}">Ich habe den Zugang gesichert – weiter</a>
+</div>
+<script src="/static/print.js" defer></script>
+{% endblock %}

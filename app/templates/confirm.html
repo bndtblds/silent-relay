@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block title %}Nachricht prüfen – SilentRelay{% endblock %}{% block content %}
+<div class="narrow">
+  <div class="progress compact" aria-label="Nachricht: Schritt 2 von 2"><span>✓</span><span class="active">2</span></div>
+  <span class="eyebrow">Schritt 2 von 2</span><h1>Nachricht prüfen</h1><p>Lesen Sie den Text noch einmal vollständig. Nach dem Absenden kann er nicht zurückgerufen oder bearbeitet werden.</p>
+  <div class="message" aria-label="Ihre Nachricht">{{ message }}</div>
+  <div class="screen-actions"><a class="button secondary" href="/notify/{{ token }}">Zurück und bearbeiten</a><form method="post" action="/notify/{{ token }}/confirm"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="submission" value="{{ submission }}"><button class="button-large">Vertraulich absenden</button></form></div>
+</div>
+{% endblock %}
