@@ -65,17 +65,19 @@ replace emergency services or official arrangements.
    .\setup.ps1
    ```
 
-   The setup asks for the public domain and technical administrator
-   credentials. It creates all secrets, starts SilentRelay, initializes the
-   database, and checks the application.
+   The setup asks for the primary public domain, optional additional domains,
+   and technical administrator credentials. It creates all secrets, starts
+   SilentRelay, initializes the database, and checks the application.
 
 4. Open `https://your-domain.example/admin/login`, sign in, and configure SMTP
    under system settings.
 5. Open the public start page and create the first account.
 
-Caddy obtains and renews the HTTPS certificate automatically. The setup never
-stores the administrator password in clear text and never overwrites an
-existing `.env` file. Keep `.env` separate from database backups.
+Caddy obtains and renews HTTPS certificates automatically. Additional domains
+are redirected to the primary domain, which SilentRelay uses for all generated
+links and QR codes. Every entered domain must point to the server before setup.
+The setup never stores the administrator password in clear text and never
+overwrites an existing `.env` file. Keep `.env` separate from database backups.
 
 Manual configuration and advanced deployment options are documented in
 [Operations](docs/OPERATIONS.md).

@@ -14,9 +14,17 @@ It refuses to overwrite an existing `.env`.
 For a manual installation, copy `.env.example` to `.env` and fill every
 required value. Never commit `.env`.
 
-`CADDY_DOMAIN` is the public domain without a scheme or path.
-`APP_BASE_URL` is the matching public HTTPS origin. Cookies are secure by
-default, so plain HTTP is not suitable for production.
+`CADDY_DOMAIN` is the primary public domain without a scheme or path.
+`CADDY_DOMAINS` contains the primary domain and every optional additional
+domain, separated by commas. `APP_BASE_URL` is the matching public HTTPS origin
+for the primary domain. SilentRelay generates links only with this primary
+origin. Caddy obtains a certificate for every configured domain and redirects
+additional domains to the primary domain. Cookies are secure by default, so
+plain HTTP is not suitable for production.
+
+Every configured domain must have a working DNS record pointing to the server.
+Wildcard domains are not supported by the guided setup because they require
+DNS-based ACME validation and provider credentials.
 
 Generate the field-encryption key:
 

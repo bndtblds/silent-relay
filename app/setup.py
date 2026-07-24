@@ -45,10 +45,29 @@ def validate_username(value: str) -> str:
     return username
 
 
-def render_environment(template: str, domain: str, username: str, password: str) -> str:
+def validate_aliases(value: str, canonical_domain: str) -> list[str]:
+    if not value.strip():
+        return []
+    aliases = [validate_domain(part) for part in value.split(",")]
+    if canonical_domain in aliases:
+        raise ValueError("Do not repeat the primary domain as an additional domain.")
+    if len(set(aliases)) != len(aliases):
+        raise ValueError("Each additional domain may only be entered once.")
+    return aliases
+
+
+def render_environment(
+    template: str,
+    domain: str,
+    username: str,
+    password: str,
+    aliases: list[str] | None = None,
+) -> str:
+    caddy_domains = ", ".join([domain, *(aliases or [])])
     replacements = {
         "APP_BASE_URL": f"https://{domain}",
         "CADDY_DOMAIN": domain,
+        "CADDY_DOMAINS": caddy_domains,
         "FIELD_ENCRYPTION_KEY": Fernet.generate_key().decode(),
         "TOKEN_HMAC_KEY": secrets.token_urlsafe(48),
         "FINGERPRINT_HMAC_KEY": secrets.token_urlsafe(48),
@@ -97,6 +116,17 @@ def prompt_password() -> str:
         return password
 
 
+def prompt_aliases(canonical_domain: str) -> list[str]:
+    while True:
+        value = input(
+            f"Additional domains (optional, comma-separated, for example www.{canonical_domain}): "
+        )
+        try:
+            return validate_aliases(value, canonical_domain)
+        except ValueError as exc:
+            print(exc)
+
+
 def write_private_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(prefix=".env.", dir=path.parent, text=True)
@@ -129,6 +159,7 @@ def main() -> int:
     print("SilentRelay setup")
     print("Before continuing, point the public domain to this server and open ports 80 and 443.")
     domain = prompt_value("Public domain", validate_domain)
+    aliases = prompt_aliases(domain)
     username = prompt_value("Technical administrator username", validate_username, "admin")
     password = prompt_password()
     environment = render_environment(
@@ -136,6 +167,7 @@ def main() -> int:
         domain,
         username,
         password,
+        aliases,
     )
     write_private_file(target_path, environment)
     print(f"Configuration written to {target_path}.")

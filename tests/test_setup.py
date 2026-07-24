@@ -4,12 +4,25 @@ import pytest
 
 from app.config import Settings
 from app.security.core import verify_password
-from app.setup import hash_admin_password, render_environment, validate_domain, validate_username, write_private_file
+from app.setup import (
+    hash_admin_password,
+    render_environment,
+    validate_aliases,
+    validate_domain,
+    validate_username,
+    write_private_file,
+)
 
 
 def test_setup_environment_contains_valid_independent_secrets():
     template = Path(".env.example").read_text(encoding="utf-8")
-    rendered = render_environment(template, "relay.example.org", "operator", "correct horse battery")
+    rendered = render_environment(
+        template,
+        "relay.example.org",
+        "operator",
+        "correct horse battery",
+        ["www.relay.example.org", "private.example.net"],
+    )
     values = dict(
         line.split("=", 1)
         for line in rendered.splitlines()
@@ -18,6 +31,7 @@ def test_setup_environment_contains_valid_independent_secrets():
 
     assert values["APP_BASE_URL"] == "https://relay.example.org"
     assert values["CADDY_DOMAIN"] == "relay.example.org"
+    assert values["CADDY_DOMAINS"] == "relay.example.org, www.relay.example.org, private.example.net"
     assert values["ADMIN_USERNAME"] == "operator"
     assert verify_password(values["ADMIN_PASSWORD_HASH"], "correct horse battery")
     secrets = {
@@ -64,6 +78,20 @@ def test_generated_environment_loads_as_application_settings(tmp_path, monkeypat
 def test_setup_rejects_invalid_public_domains(domain):
     with pytest.raises(ValueError):
         validate_domain(domain)
+
+
+def test_setup_validates_optional_domain_aliases():
+    assert validate_aliases("", "example.org") == []
+    assert validate_aliases("www.example.org, relay.example.net", "example.org") == [
+        "www.example.org",
+        "relay.example.net",
+    ]
+    with pytest.raises(ValueError):
+        validate_aliases("example.org", "example.org")
+    with pytest.raises(ValueError):
+        validate_aliases("www.example.org,www.example.org", "example.org")
+    with pytest.raises(ValueError):
+        validate_aliases("*.example.org", "example.org")
 
 
 def test_setup_validates_admin_username():
