@@ -7,7 +7,7 @@ from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, Larg
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from uuid6 import uuid7
 
-from app.database import Base
+from app.model_base import Base
 
 
 def uuid7_str() -> str:
@@ -221,4 +221,15 @@ class SmtpConfiguration(Base):
     starttls: Mapped[bool] = mapped_column(Boolean, default=True)
     encrypted_from_address: Mapped[bytes] = mapped_column(LargeBinary)
     encrypted_from_name: Mapped[bytes] = mapped_column(LargeBinary)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class PublicSiteContent(Base):
+    __tablename__ = "public_site_contents"
+    language_code: Mapped[str] = mapped_column(String(16), primary_key=True)
+    imprint_text: Mapped[str] = mapped_column(Text)
+    privacy_text: Mapped[str] = mapped_column(Text)
+    contact_email: Mapped[str] = mapped_column(String(320))
+    contact_text: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

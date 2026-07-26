@@ -19,6 +19,7 @@ from app.models import (
     TrustedPerson, TrustedPersonToken,
 )
 from app.providers.email import EmailNotificationProvider
+from app.public_site import load_public_site_content
 from app.security.core import FieldCipher, SessionManager, generate_token, hash_password, keyed_hash, verify_password
 from app.services import AccountService, AuthenticationService, DeliveryService, ManagementService, NotificationService
 from app.smtp_config import load_email_provider
@@ -60,6 +61,40 @@ def public_csrf_guard(request: Request, db: Session, settings: Settings, csrf: s
 @router.get("/", response_class=HTMLResponse)
 def index(request: Request, settings: Settings = Depends(get_settings)):
     return templates.TemplateResponse(request, "index.html", context(request, creation_enabled=settings.account_creation_enabled))
+
+
+@router.get("/imprint", response_class=HTMLResponse)
+def imprint(request: Request, db: Session = Depends(get_db)):
+    content = load_public_site_content(db)
+    return templates.TemplateResponse(request, "publiccontent.html", context(
+        request,
+        title="Impressum",
+        body=content.imprint_text if content else "",
+        missing_message="Das Impressum wurde vom Betreiber noch nicht hinterlegt.",
+    ))
+
+
+@router.get("/privacy", response_class=HTMLResponse)
+def privacy(request: Request, db: Session = Depends(get_db)):
+    content = load_public_site_content(db)
+    return templates.TemplateResponse(request, "publiccontent.html", context(
+        request,
+        title="Datenschutz",
+        body=content.privacy_text if content else "",
+        missing_message="Die Datenschutzhinweise wurden vom Betreiber noch nicht hinterlegt.",
+    ))
+
+
+@router.get("/contact", response_class=HTMLResponse)
+def contact(request: Request, db: Session = Depends(get_db)):
+    content = load_public_site_content(db)
+    return templates.TemplateResponse(request, "publiccontent.html", context(
+        request,
+        title="Kontakt",
+        body=content.contact_text if content else "",
+        contact_email=content.contact_email if content else "",
+        missing_message="Die Kontaktadresse wurde vom Betreiber noch nicht hinterlegt.",
+    ))
 
 
 @router.get("/account/create", response_class=HTMLResponse)

@@ -120,10 +120,19 @@ domains redirect to the primary domain.
 3. Enter the SMTP server details.
 4. Test the SMTP connection.
 5. Send a test email.
-6. Open the public start page and create the first SilentRelay account.
+6. Open **Public information** in the administration area.
+7. Add the operator's reviewed imprint, privacy information, and public contact
+   address.
+8. Open the public imprint, privacy, and contact pages from the footer and
+   verify their content.
+9. Open the public start page and create the first SilentRelay account.
 
 SMTP is deliberately checked separately. A temporary mail-server failure does
 not take the SilentRelay website offline.
+
+SilentRelay safely displays the operator text but does not generate universal
+legal wording. The operator remains responsible for the completeness and
+accuracy of the published information.
 
 ## Check the running system
 
@@ -311,5 +320,7 @@ matching `.env` and database from backup if keys are lost.
 - `caddy`, `web`, and exactly one `scheduler` are running.
 - `web` is healthy.
 - SMTP connection and test-email delivery succeed.
+- Imprint, privacy information, and contact details are complete and publicly
+  reachable from the footer.
 - A test account can complete the notification flow.
 - Backup restoration has been tested.

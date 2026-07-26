@@ -8,7 +8,13 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.database import get_db
-from app.models import Account, AccountStatus, Delivery, DeliveryStatus, Notification, SmtpConfiguration
+from app.models import (
+    Account, AccountStatus, Delivery, DeliveryStatus, Notification, SmtpConfiguration,
+)
+from app.public_site import (
+    DEFAULT_LANGUAGE, load_public_site_content, public_site_content_is_complete,
+    save_public_site_content,
+)
 from app.security.core import FieldCipher, SessionManager, verify_password
 from app.services import audit
 from app.smtp_config import load_email_config, load_email_provider, save_email_config, test_smtp_connection
@@ -85,7 +91,13 @@ def accounts(request: Request, db: Session = Depends(get_db), settings: Settings
             "reviewed": account.last_reviewed_at.strftime("%d.%m.%Y, %H:%M") if account.last_reviewed_at else None,
             "failures": failures,
         })
-    return templates.TemplateResponse(request, "adminaccounts.html", {"request": request, "accounts": rows, "csrf": request.cookies.get("sr_admin_csrf", "")})
+    public_content = load_public_site_content(db)
+    return templates.TemplateResponse(request, "adminaccounts.html", {
+        "request": request,
+        "accounts": rows,
+        "public_content_complete": public_site_content_is_complete(public_content),
+        "csrf": request.cookies.get("sr_admin_csrf", ""),
+    })
 
 
 @router.get("/health")
@@ -112,6 +124,62 @@ def system_configuration(request: Request, db: Session = Depends(get_db), settin
         "csrf": request.cookies.get("sr_admin_csrf", ""),
         "result": request.query_params.get("result"),
     })
+
+
+@router.get("/public-content", response_class=HTMLResponse)
+def public_content_configuration(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    admin_session(request, db, settings)
+    stored = load_public_site_content(db, DEFAULT_LANGUAGE)
+    return templates.TemplateResponse(request, "adminpubliccontent.html", {
+        "request": request,
+        "content": stored,
+        "complete": public_site_content_is_complete(stored),
+        "csrf": request.cookies.get("sr_admin_csrf", ""),
+        "result": request.query_params.get("result"),
+    })
+
+
+@router.post("/public-content", response_class=HTMLResponse)
+def update_public_content(
+    request: Request,
+    imprint_text: str = Form(""),
+    privacy_text: str = Form(""),
+    contact_email: str = Form(""),
+    contact_text: str = Form(""),
+    csrf: str = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    verify_admin_csrf(request, csrf, db, settings)
+    try:
+        content = save_public_site_content(
+            db,
+            language_code=DEFAULT_LANGUAGE,
+            imprint_text=imprint_text,
+            privacy_text=privacy_text,
+            contact_email=contact_email,
+            contact_text=contact_text,
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(request, "adminpubliccontent.html", {
+            "request": request,
+            "content": {
+                "imprint_text": imprint_text,
+                "privacy_text": privacy_text,
+                "contact_email": contact_email,
+                "contact_text": contact_text,
+            },
+            "complete": False,
+            "csrf": csrf,
+            "error": str(exc),
+        }, status_code=400)
+    audit(db, "public_site_content_updated", language=DEFAULT_LANGUAGE)
+    db.commit()
+    return RedirectResponse("/admin/public-content?result=saved", 303)
 
 
 @router.post("/system/smtp")

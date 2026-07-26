@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import engine
 from app.config import get_settings
 from app.main import app
-from app.models import Partner, SmtpConfiguration
+from app.models import AuditLog, Partner, PublicSiteContent, SmtpConfiguration
 from app.providers.base import DeliveryResult
 from app.routers import admin, web
 from app.security.core import hash_password
@@ -242,3 +242,84 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
     with Session(engine) as db:
         stored = db.get(SmtpConfiguration, "default")
         assert b"secret-password" not in stored.encrypted_password
+
+
+def test_admin_can_publish_escaped_operator_information():
+    settings = get_settings()
+    settings.admin_password_hash = hash_password("admin demo password")
+
+    with TestClient(app) as client:
+        imprint_before = client.get("/imprint")
+        assert imprint_before.status_code == 200
+        assert "noch nicht hinterlegt" in imprint_before.text
+        assert 'href="/privacy"' in imprint_before.text
+        assert client.get("/admin/public-content", follow_redirects=False).status_code == 303
+
+        login = client.post(
+            "/admin/login",
+            data={"username": settings.admin_username, "password": "admin demo password"},
+            follow_redirects=True,
+        )
+        assert login.status_code == 200
+        csrf = hidden_value(login.text, "csrf")
+
+        public_content_form = client.get("/admin/public-content")
+        assert "Einrichtung noch nicht abgeschlossen" in public_content_form.text
+        assert client.post(
+            "/admin/public-content",
+            data={
+                "csrf": "wrong",
+                "imprint_text": "Impressum",
+                "privacy_text": "Datenschutz",
+                "contact_email": "support@example.org",
+                "contact_text": "",
+            },
+        ).status_code == 403
+
+        invalid = client.post(
+            "/admin/public-content",
+            data={
+                "csrf": csrf,
+                "imprint_text": "",
+                "privacy_text": "Datenschutz",
+                "contact_email": "not-an-email",
+                "contact_text": "",
+            },
+        )
+        assert invalid.status_code == 400
+        assert "Impressum muss" in invalid.text
+
+        saved = client.post(
+            "/admin/public-content",
+            data={
+                "csrf": csrf,
+                "imprint_text": "Beispielbetrieb\n<script>alert('x')</script>",
+                "privacy_text": "Keine externen Tracker.\n<b>Nicht als HTML</b>",
+                "contact_email": "support@example.org",
+                "contact_text": "Technische Fragen\nbitte per E-Mail.",
+            },
+            follow_redirects=True,
+        )
+        assert saved.status_code == 200
+        assert "öffentlichen Angaben wurden gespeichert" in saved.text
+
+        imprint = client.get("/imprint")
+        privacy = client.get("/privacy")
+        contact = client.get("/contact")
+        assert "<script>" not in imprint.text
+        assert "&lt;script&gt;" in imprint.text
+        assert "<b>Nicht als HTML</b>" not in privacy.text
+        assert "&lt;b&gt;Nicht als HTML&lt;/b&gt;" in privacy.text
+        assert 'href="mailto:support@example.org"' in contact.text
+        assert "Technische Fragen" in contact.text
+
+    with Session(engine) as db:
+        stored = db.get(PublicSiteContent, "de")
+        assert stored is not None
+        assert stored.contact_email == "support@example.org"
+        event = db.scalar(
+            select(AuditLog).where(AuditLog.event_type == "public_site_content_updated")
+        )
+        assert event is not None
+        assert "support@example.org" not in event.technical_metadata
+        assert "Beispielbetrieb" not in event.technical_metadata

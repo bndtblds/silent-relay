@@ -3,13 +3,10 @@ from __future__ import annotations
 from collections.abc import Generator
 
 from sqlalchemy import Engine, create_engine, event
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings, get_settings
-
-
-class Base(DeclarativeBase):
-    pass
+from app.model_base import Base
 
 
 def create_database_engine(settings: Settings) -> Engine:

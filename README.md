@@ -92,9 +92,11 @@ docker compose version
    and technical administrator credentials. It creates all secrets, starts
    SilentRelay, initializes the database, and checks the application.
 
-4. Open `https://your-domain.example/admin/login`, sign in, and configure SMTP
-   under system settings.
-5. Open the public start page and create the first account.
+4. Open `https://your-domain.example/admin/login` and sign in.
+5. Configure and test SMTP under system settings.
+6. Add the deployment's imprint, privacy information, and public contact
+   address under public information.
+7. Open the public start page and create the first account.
 
 Caddy obtains and renews HTTPS certificates automatically. Additional domains
 are redirected to the primary domain, which SilentRelay uses for all generated

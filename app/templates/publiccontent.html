@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block title %}{{ title }} – SilentRelay{% endblock %}{% block content %}
+<div class="narrow"><span class="eyebrow">SilentRelay · Betreiberinformationen</span><h1>{{ title }}</h1>
+{% if body %}<div class="public-content">{{ body }}</div>{% endif %}
+{% if contact_email %}<p><strong>E-Mail:</strong> <a href="mailto:{{ contact_email }}">{{ contact_email }}</a></p>{% endif %}
+{% if not body and not contact_email %}<p class="notice">{{ missing_message }}</p>{% endif %}
+</div>
+{% endblock %}
