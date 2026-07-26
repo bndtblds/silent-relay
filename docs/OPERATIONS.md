@@ -1,17 +1,30 @@
 # Operating SilentRelay
 
-This document contains the technical details required to deploy and maintain a
-SilentRelay installation. Start with the project [README](../README.md) for the
-short installation guide.
+This guide is for people who run their own SilentRelay server. It covers the
+recommended installation, routine checks, updates, and the current backup
+options. Development details are documented separately in
+[DEVELOPMENT.md](DEVELOPMENT.md).
+
+## Before you begin
+
+You need:
+
+- a server with Debian 13 or another Docker-supported operating system;
+- a public domain that points to the server;
+- inbound ports `80` and `443` open in the server firewall;
+- an SMTP account for sending email; and
+- administrator access to the server.
+
+The examples below use `/opt/silent-relay` as the installation directory and
+are run as `root`. If you use another administrator account, prefix system
+commands with `sudo`.
 
 ## Install Docker on Debian 13
 
-SilentRelay requires Docker Engine with the Docker Compose plugin. The following
-example follows Docker's official installation method for Debian 13
-(`trixie`). Run these commands as `root`; otherwise prefix administrative
-commands with `sudo`.
+If Docker Engine and the Docker Compose plugin are already installed, continue
+with [Install SilentRelay](#install-silentrelay).
 
-Install the repository prerequisites and Docker signing key:
+Install the required packages and Docker signing key:
 
 ```sh
 apt-get update
@@ -22,7 +35,7 @@ curl -fsSL https://download.docker.com/linux/debian/gpg \
 chmod a+r /etc/apt/keyrings/docker.asc
 ```
 
-Add Docker's stable package repository:
+Add Docker's package source:
 
 ```sh
 cat > /etc/apt/sources.list.d/docker.sources <<EOF
@@ -35,7 +48,7 @@ Signed-By: /etc/apt/keyrings/docker.asc
 EOF
 ```
 
-Install and verify Docker:
+Install and start Docker:
 
 ```sh
 apt-get update
@@ -52,207 +65,251 @@ docker compose version
 docker run --rm hello-world
 ```
 
-For other operating systems, use the
-[official Docker Engine installation guide](https://docs.docker.com/engine/install/).
-Docker-published container ports can interact with host firewall rules; use the
-provider firewall as an additional boundary and expose only the ports required
-by SilentRelay.
+The last three commands must complete successfully. For another operating
+system, follow Docker's
+[official installation guide](https://docs.docker.com/engine/install/).
 
-Create the application directory and clone the repository:
+## Install SilentRelay
+
+Before continuing, make sure every domain that you want to use points to this
+server. Open inbound TCP ports `80` and `443`. UDP port `443` is optional and
+enables HTTP/3.
+
+Download SilentRelay:
 
 ```sh
-install -d /opt/silent-relay
 git clone https://github.com/bndtblds/silent-relay.git /opt/silent-relay
 cd /opt/silent-relay
 ```
 
-## Configuration
-
-The recommended installation uses `setup.sh` on Linux or `setup.ps1` on
-Windows. The setup creates `.env`, generates independent secrets, hashes the
-administrator password, starts all services, and checks application readiness.
-It refuses to overwrite an existing `.env`.
-
-For a manual installation, copy `.env.example` to `.env` and fill every
-required value. Never commit `.env`.
-
-`CADDY_DOMAIN` is the primary public domain without a scheme or path.
-`CADDY_DOMAINS` contains the primary domain and every optional additional
-domain, separated by commas. `APP_BASE_URL` is the matching public HTTPS origin
-for the primary domain. SilentRelay generates links only with this primary
-origin. Caddy obtains a certificate for every configured domain and redirects
-additional domains to the primary domain. Cookies are secure by default, so
-plain HTTP is not suitable for production.
-
-Every configured domain must have a working DNS record pointing to the server.
-Wildcard domains are not supported by the guided setup because they require
-DNS-based ACME validation and provider credentials.
-
-Generate the field-encryption key:
+Start the guided setup:
 
 ```sh
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+sh setup.sh
 ```
 
-Generate four different random values of at least 32 bytes for:
+The setup asks for:
 
-- `TOKEN_HMAC_KEY`
-- `FINGERPRINT_HMAC_KEY`
-- `SESSION_SECRET`
-- `CSRF_SECRET`
+- the primary public domain;
+- optional additional domains;
+- the technical administrator's username; and
+- the technical administrator's password.
 
-After installing the project dependencies, generate the administrator password
-hash:
+It then creates the private configuration, starts SilentRelay, initializes the
+database, and checks whether the application is ready. It does not store the
+administrator password in clear text.
 
-```sh
-python -c "from app.security.core import hash_password; print(hash_password(input('Password: ')))"
+The setup stops without changing anything if `/opt/silent-relay/.env` already
+exists. Do not delete this file to repeat the setup: it contains the keys
+required to read the existing encrypted data.
+
+When setup finishes, open:
+
+```text
+https://your-primary-domain.example/admin/login
 ```
 
-Store the result in `ADMIN_PASSWORD_HASH`. Store only the hash, never the clear
-password.
+Replace the example address with the primary domain entered during setup.
+Caddy obtains and renews the HTTPS certificate automatically. Additional
+domains redirect to the primary domain.
 
-Secrets should be supplied by the host's secret manager or Docker secrets where
-possible. They must be backed up separately from the database.
+## Complete the first setup
 
-## SMTP
+1. Sign in to `/admin/login`.
+2. Open the system settings.
+3. Enter the SMTP server details.
+4. Test the SMTP connection.
+5. Send a test email.
+6. Open the public start page and create the first SilentRelay account.
 
-After signing in at `/admin/login`, open `/admin/system`. SMTP settings can be
-entered, checked, and tested there. Settings saved in the administration area
-override SMTP environment variables for both the web service and scheduler.
+SMTP is deliberately checked separately. A temporary mail-server failure does
+not take the SilentRelay website offline.
 
-SMTP credentials are encrypted with `FIELD_ENCRYPTION_KEY`. The saved password
-is never displayed in the browser.
+## Check the running system
 
-SMTP is intentionally not part of the readiness check. A temporary SMTP failure
-must not make the web application unavailable.
-
-## HTTPS and reverse proxy
-
-The included Caddy service is the only publicly exposed service. It listens on
-ports `80` and `443`, obtains a publicly trusted TLS certificate, redirects
-HTTP to HTTPS, and forwards requests to `web` over an internal Docker network.
-Caddy stores certificate state in the `caddy-data` and `caddy-config` volumes.
-
-Before starting SilentRelay:
-
-- Point the configured public domain to the server.
-- Allow inbound TCP traffic on ports `80` and `443`.
-- Allow inbound UDP traffic on port `443` for HTTP/3, if supported.
-
-Caddy access logging is not enabled, and Uvicorn access logs are disabled,
-because account, notification, and verification paths can contain secret
-tokens. The `web` service has no published host port and accepts forwarding
-headers only inside the trusted Compose deployment.
-
-Operators who replace Caddy must preserve these properties: HTTPS, no logging
-of secret-bearing paths, overwritten forwarding headers, and no direct public
-access to `web`.
-
-## Health checks
-
-- `GET /health/live` confirms that the process is running.
-- `GET /health/ready` confirms that configuration is loaded and the database is
-  reachable.
-
-Check the running services with:
+Change to the installation directory before running Docker commands:
 
 ```sh
+cd /opt/silent-relay
 docker compose ps
-docker compose logs caddy web scheduler
 ```
 
-Application logs contain technical events but intentionally exclude messages,
-names, email addresses, cookies, and clear access tokens.
+`caddy`, `web`, and `scheduler` must be running. `web` should also be shown as
+healthy. The `migrate` service normally appears as completed because it exits
+after checking the database.
 
-## Scheduler and delivery
+Show the most recent application logs:
 
-Run exactly one scheduler instance with SQLite. It sends queued messages,
-retries temporary delivery failures, removes delivered message content, sends
-account-review reminders, and performs retention cleanup.
+```sh
+docker compose logs --tail=100 caddy web scheduler
+```
 
-Permanent recipient rejection is not retried. Temporary failures use bounded
-retries controlled by `DELIVERY_MAX_ATTEMPTS`. Encrypted message content is
-removed after all deliveries succeed or after its retention period expires.
+Check the website from the server:
 
-## Backup
+```sh
+curl --fail --silent --show-error \
+  https://your-primary-domain.example/health/ready
+```
 
-1. Stop `web` and `scheduler`, or create a storage-level consistent SQLite
-   snapshot.
-2. Back up the `silentrelay-data` volume.
-3. Back up the `caddy-data` and `caddy-config` volumes to preserve certificate
-   state.
-4. Back up deployment configuration without adding unnecessary copies of
-   secrets.
-5. Back up the encryption, HMAC, session, and CSRF secrets separately from the
-   database.
-6. Encrypt backup media and test restoration regularly.
+Replace the example domain. A successful request confirms that the application
+configuration and database are available.
 
-A database backup without the matching field-encryption key is intentionally
-unusable for encrypted fields.
+SilentRelay intentionally does not write access logs containing secret account,
+verification, or notification links.
 
-## Restore
+## Restart SilentRelay
 
-1. Stop all SilentRelay services.
-2. Restore the database volume.
-3. Restore the exact encryption, HMAC, session, and CSRF secrets that belong to
-   that database.
-4. Run:
+Use this after a server restart or when the running services need to be
+restarted:
 
-   ```sh
-   docker compose run --rm migrate
-   ```
+```sh
+cd /opt/silent-relay
+docker compose restart caddy web scheduler
+docker compose ps
+```
 
-5. Start the deployment with `docker compose up -d`.
-6. Verify `/health/ready` and the public HTTPS address.
-7. Send a test notification through a dedicated test account.
+Do not start a second `scheduler`. The standard Compose configuration already
+runs exactly one.
 
-## Update
+## Update SilentRelay
 
-1. Create and verify a backup.
-2. Pull the reviewed release or build the new image.
-3. Stop `caddy`, `web`, and `scheduler`.
-4. Run the migration service:
+Create a current backup before every update. Then inspect the installation:
 
-   ```sh
-   docker compose run --rm migrate
-   ```
+```sh
+cd /opt/silent-relay
+git status --short
+```
 
-5. Start the deployment with `docker compose up -d`.
-6. Verify the public HTTPS address and check the service logs.
+The second command must produce no output. Stop if it lists unexpected files
+and clarify why they were changed. Do not delete `.env` and do not discard
+unknown changes merely to continue.
 
-Do not downgrade the database unless the target release explicitly documents a
-supported downgrade.
+Download the new version:
 
-## Access loss
+```sh
+git pull --ff-only
+```
 
-SilentRelay does not provide password or account-owner access recovery. Losing
-either factor can make an account inaccessible. Store the printable
-account-owner access and its password securely and separately.
+Build and start it:
 
-## Field-encryption key rotation
+```sh
+docker compose up -d --build
+```
 
-Version 1 uses one Fernet field-encryption key. Rotation is an offline
-maintenance operation and requires a purpose-built data migration:
+This command checks the database before starting the updated application. If it
+fails, do not force the other services to start. Read the error and the
+migration log:
 
-1. Stop both services and create a verified backup.
-2. Keep the old key available only during the maintenance window.
-3. Decrypt each encrypted field with the old key and immediately encrypt it
-   with the new key.
-4. Start SilentRelay with the new key and verify representative data.
-5. Restore the matched database and old key if verification fails.
-6. Securely remove obsolete key copies after a successful rotation.
+```sh
+docker compose logs migrate
+```
 
-Never start the existing database with a new key before its encrypted data has
-been re-encrypted.
+After a successful update, verify the installed commit and services:
+
+```sh
+git rev-parse --short HEAD
+docker compose ps
+docker compose logs --tail=100 caddy web scheduler
+```
+
+Then open the public website and test the area affected by the update.
+
+The update keeps:
+
+- `/opt/silent-relay/.env`;
+- all accounts and application data;
+- SMTP settings; and
+- existing HTTPS certificates.
+
+Never use `docker compose down --volumes` during an update. The `--volumes`
+option deletes persistent data.
+
+## Back up SilentRelay
+
+SilentRelay does not yet include a guided backup and restore script. Until one
+is available, the simplest complete backup is an encrypted snapshot or backup
+of the entire server.
+
+For a consistent snapshot, stop SilentRelay first:
+
+```sh
+cd /opt/silent-relay
+docker compose stop
+```
+
+Create the server snapshot or backup with the tools supplied by the hosting
+provider. Afterwards, start SilentRelay again:
+
+```sh
+docker compose up -d
+docker compose ps
+```
+
+Also keep an encrypted, access-controlled backup of
+`/opt/silent-relay/.env` in a separate safe location. This file contains the
+keys needed to read encrypted database fields. A database without its matching
+`.env` file is not a usable backup.
+
+Do not consider a backup complete until its restoration has been tested. Avoid
+copying individual files out of a running Docker data volume: the resulting
+SQLite copy may be inconsistent.
+
+## Restore SilentRelay
+
+Restoring a complete server snapshot is currently the recommended method.
+Follow the hosting provider's restore procedure, then verify:
+
+```sh
+cd /opt/silent-relay
+docker compose up -d
+docker compose ps
+docker compose logs --tail=100 caddy web scheduler
+```
+
+Open the public website, check `/health/ready`, sign in, and send a test
+notification through a dedicated test account.
+
+Moving individual Docker volumes to a new server is an advanced manual
+procedure. SilentRelay does not yet provide a guided restore tool for it.
+
+## If the website does not open
+
+Check the following in this order:
+
+1. Does the domain point to the server's public IP address?
+2. Are inbound TCP ports `80` and `443` open?
+3. What does `docker compose ps` report?
+4. What do the recent logs report?
+
+```sh
+cd /opt/silent-relay
+docker compose ps
+docker compose logs --tail=100 caddy web scheduler
+```
+
+If Caddy cannot obtain an HTTPS certificate, check the domain and firewall
+first. If `web` is unhealthy, inspect its log. If email fails while the website
+works, use the SMTP connection and test-email actions in the administration
+area.
+
+## Lost access
+
+SilentRelay version 1 does not provide password or account-owner access
+recovery. Keep the printed account-owner access and its password securely and
+separately.
+
+The field-encryption key cannot currently be rotated through the administration
+area or a supplied maintenance command. Do not replace keys in `.env` on an
+existing installation: doing so makes encrypted data unreadable. Restore the
+matching `.env` and database from backup if keys are lost.
 
 ## Production checklist
 
-- HTTPS is enforced.
-- The public domain points to the server and Caddy can bind ports 80 and 443.
-- `.env` and all backups are protected.
-- Secret-bearing URL paths are excluded from proxy logs.
-- Only Caddy is publicly exposed.
-- Exactly one scheduler is running with SQLite.
-- SMTP test delivery succeeds.
-- `/health/ready` succeeds.
+- The primary domain opens over HTTPS.
+- Only ports `80` and `443` are publicly exposed for SilentRelay.
+- The `.env` file and backups are protected.
+- `caddy`, `web`, and exactly one `scheduler` are running.
+- `web` is healthy.
+- SMTP connection and test-email delivery succeed.
+- A test account can complete the notification flow.
 - Backup restoration has been tested.
