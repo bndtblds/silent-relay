@@ -163,6 +163,8 @@ current setup browser so that the manual account flow can continue.
 - `app/main.py` creates the FastAPI application and security middleware.
 - `app/i18n.py` contains language negotiation, formatting, and the small
   German/English translation catalog.
+- `app/public_markdown.py` renders the deliberately limited Markdown accepted
+  for public operator information.
 - `app/routers/` contains public, account-owner, and technical-admin HTTP
   routes.
 - `app/services.py` contains application rules and database operations.
@@ -178,6 +180,12 @@ current setup browser so that the manual account flow can continue.
 Keep HTTP handling in routers and business rules in the service layer. Reuse
 the existing provider, session, encryption, and database abstractions instead
 of duplicating them.
+
+Public operator information is untrusted input even though only the technical
+admin can edit it. Keep its Markdown renderer allowlist-based: escape text and
+attributes, permit only the documented formatting and URL schemes, and never
+enable raw HTML, images, embeds, or arbitrary Markdown extensions. Add both
+positive rendering tests and negative injection tests when changing it.
 
 ## Database changes
 

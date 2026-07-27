@@ -371,10 +371,10 @@ def test_admin_can_publish_escaped_operator_information():
             "/admin/public-content",
             data={
                 "csrf": csrf,
-                "imprint_text": "Beispielbetrieb\n<script>alert('x')</script>",
-                "privacy_text": "Keine externen Tracker.\n<b>Nicht als HTML</b>",
+                "imprint_text": "# Beispielbetrieb\n\n**Verantwortlich**\n\n<script>alert('x')</script>",
+                "privacy_text": "## Datenschutz\n\nKeine externen Tracker.\n\n<b>Nicht als HTML</b>",
                 "contact_email": "support@example.org",
-                "contact_text": "Technische Fragen\nbitte per E-Mail.",
+                "contact_text": "Technische Fragen bitte per [E-Mail](mailto:support@example.org).\n\n![Bild](https://example.org/image.png)",
             },
             follow_redirects=True,
         )
@@ -386,10 +386,15 @@ def test_admin_can_publish_escaped_operator_information():
         contact = client.get("/contact")
         assert "<script>" not in imprint.text
         assert "&lt;script&gt;" in imprint.text
+        assert "<h2>Beispielbetrieb</h2>" in imprint.text
+        assert "<strong>Verantwortlich</strong>" in imprint.text
         assert "<b>Nicht als HTML</b>" not in privacy.text
         assert "&lt;b&gt;Nicht als HTML&lt;/b&gt;" in privacy.text
+        assert "<h3>Datenschutz</h3>" in privacy.text
         assert 'href="mailto:support@example.org"' in contact.text
         assert "Technische Fragen" in contact.text
+        assert "<img" not in contact.text
+        assert "![Bild]" in contact.text
 
     with Session(engine) as db:
         stored = db.get(PublicSiteContent, "de")

@@ -35,7 +35,10 @@ p { line-height: 1.6; }
 main { max-width: 72rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
 .site-footer { padding: 1.5rem max(1rem, calc((100vw - 72rem) / 2)); border-top: 1px solid var(--border); color: var(--muted); background: #fff; font-size: .9rem; }
 .footer-nav { display: flex; flex-wrap: wrap; gap: 1rem; }
-.public-content { overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.6; }
+.public-content { overflow-wrap: anywhere; line-height: 1.6; }
+.public-content h2, .public-content h3, .public-content h4, .public-content h5, .public-content h6 { margin: 1.4em 0 .45em; }
+.public-content p, .public-content ul, .public-content ol { margin: 0 0 1em; }
+.public-content li + li { margin-top: .3em; }
 
 .narrow { max-width: 42rem; margin: 0 auto; }
 .hero { max-width: 54rem; padding: 2.5rem 0; }

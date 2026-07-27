@@ -8,12 +8,13 @@
 <section class="panel">
   <h2>Inhaltssprache</h2>
   <div class="actions">{% for code in supported_languages %}<a class="button {{ 'secondary' if code != content_language }}" href="/admin/public-content?content_language={{ code }}">{{ language_labels[code] }}</a>{% endfor %}</div>
-  <p>Tragen Sie Ihre eigenen, geprüften Betreiberinformationen als Klartext ein. SilentRelay erstellt keine allgemeingültigen Rechtstexte. Eingaben werden nicht als HTML ausgeführt.</p>
+  <p>Tragen Sie Ihre eigenen, geprüften Betreiberinformationen ein. SilentRelay erstellt keine allgemeingültigen Rechtstexte. Rohes HTML wird nie ausgeführt.</p>
+  <details class="markdown-help"><summary>Formatierungshilfe</summary><p>Erlaubt sind Überschriften mit <code>## Überschrift</code>, Listen mit <code>- Eintrag</code> oder <code>1. Eintrag</code>, <code>**fett**</code>, <code>*kursiv*</code> und Links wie <code>[Bezeichnung](https://example.org)</code>. Links dürfen nur mit <code>https://</code>, <code>http://</code> oder <code>mailto:</code> beginnen. Bilder, eingebettete Inhalte und HTML werden nicht dargestellt.</p></details>
   <form method="post" action="/admin/public-content">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="language_code" value="{{ content_language }}">
     <label for="imprint_text">Impressum</label>
-    <p class="form-hint">Zum Beispiel Name, ladungsfähige Anschrift, Vertretungsberechtigte und weitere für Ihren Betrieb erforderliche Angaben.</p>
+    <p class="form-hint">Zum Beispiel Name, ladungsfähige Anschrift, Vertretungsberechtigte und weitere erforderliche Angaben. Begrenztes Markdown ist möglich.</p>
     <textarea id="imprint_text" name="imprint_text" maxlength="20000" required>{{ content.imprint_text if content else "" }}</textarea>
 
     <label for="privacy_text">Datenschutzhinweise</label>

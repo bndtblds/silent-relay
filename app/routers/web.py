@@ -23,6 +23,7 @@ from app.models import (
     Partner, ServerSession, TrustedPerson, TrustedPersonToken,
 )
 from app.providers.email import EmailNotificationProvider
+from app.public_markdown import render_public_markdown
 from app.public_site import load_public_site_content_with_fallback
 from app.security.core import FieldCipher, SessionManager, generate_token, hash_password, keyed_hash, verify_password
 from app.services import AccountService, AuthenticationService, DeliveryService, ManagementService, NotificationService
@@ -101,7 +102,7 @@ def imprint(
     return templates.TemplateResponse(request, "publiccontent.html", context(
         request, language,
         title=translate(language, "site.imprint"),
-        body=content.imprint_text if content else "",
+        body=render_public_markdown(content.imprint_text) if content else "",
         fallback=fallback,
         missing_message=translate(language, "public.imprint_missing"),
     ))
@@ -118,7 +119,7 @@ def privacy(
     return templates.TemplateResponse(request, "publiccontent.html", context(
         request, language,
         title=translate(language, "site.privacy"),
-        body=content.privacy_text if content else "",
+        body=render_public_markdown(content.privacy_text) if content else "",
         fallback=fallback,
         missing_message=translate(language, "public.privacy_missing"),
     ))
@@ -135,7 +136,7 @@ def contact(
     return templates.TemplateResponse(request, "publiccontent.html", context(
         request, language,
         title=translate(language, "site.contact"),
-        body=content.contact_text if content else "",
+        body=render_public_markdown(content.contact_text) if content else "",
         contact_email=content.contact_email if content else "",
         fallback=fallback,
         missing_message=translate(language, "public.contact_missing"),
