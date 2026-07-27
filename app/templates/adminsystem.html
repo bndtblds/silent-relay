@@ -17,7 +17,7 @@
 <section class="panel"><h2>Server und Absender</h2>
   <p>Die Daten erhalten Sie von Ihrem E-Mail-Anbieter oder Serveradministrator. Sie gelten für alle SilentRelay-Konten. Zugangsdaten werden verschlüsselt gespeichert und das Passwort wird niemals erneut angezeigt.</p>
   <p><span class="badge {{ 'success' if stored_in_database else 'pending' }}">{{ "Individuell konfiguriert" if stored_in_database else "Umgebungsvariablen/Standardwerte aktiv" }}</span></p>
-  <form class="compact-form" method="post" action="/admin/system/smtp">
+  <form id="smtp-settings-form" class="compact-form" method="post" action="/admin/system/smtp">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>SMTP-Server<input name="host" value="{{ config.host }}" autocomplete="off" required></label>
     <label>Port<input type="number" name="port" min="1" max="65535" value="{{ config.port }}" required></label>
@@ -26,8 +26,11 @@
     <label class="checkbox"><input type="checkbox" name="starttls" value="yes" {% if config.starttls %}checked{% endif %}> Verschlüsselte Verbindung mit STARTTLS verwenden</label>
     <label>Absenderadresse<input type="email" name="from_address" value="{{ config.from_address }}" required></label>
     <label>Absendername<input name="from_name" value="{{ config.from_name }}" required></label>
-    <button>Einstellungen speichern</button>
   </form>
+  <div class="actions settings-actions">
+    <button form="smtp-settings-form">Einstellungen speichern</button>
+    <form method="post" action="/admin/system/smtp/test-connection"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">SMTP-Verbindung testen</button></form>
+  </div>
 </section>
 
 <section class="panel"><h2>Zustellfehler automatisch erkennen</h2>
@@ -37,7 +40,7 @@
     <strong>Dieses Postfach wird vollständig von SilentRelay verwaltet.</strong>
     <p>Sobald diese Funktion aktiv ist, löscht SilentRelay sämtliche eingehenden Nachrichten dauerhaft – einschließlich Antworten, Spam, unlesbarer Nachrichten und bereits verarbeiteter Zustellberichte. Verwenden Sie die Absenderadresse <strong>{{ config.from_address }}</strong> nicht für Support, persönliche Korrespondenz oder andere Zwecke.</p>
   </div>
-  <form class="compact-form" method="post" action="/admin/system/ndr">
+  <form id="imap-settings-form" class="compact-form" method="post" action="/admin/system/ndr">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>IMAP-Server<input name="host" value="{{ imap_host }}" autocomplete="off" required></label>
     <label>IMAP-Port<input type="number" name="port" min="1" max="65535" value="{{ imap_port }}" required></label>
@@ -47,18 +50,14 @@
       <span class="form-hint">Geben Sie exakt <strong>{{ config.from_address }}</strong> ein. Damit bestätigen Sie, dass SilentRelay alle eingehenden Nachrichten dieses Postfachs dauerhaft löschen darf.</span>
       <input type="email" name="acknowledged_address" autocomplete="off" required>
     </label>
-    <button>Verarbeitung aktivieren und speichern</button>
   </form>
-  {% if ndr_enabled %}
-  <div class="actions">
+  <div class="actions settings-actions">
+    <button form="imap-settings-form">Verarbeitung aktivieren und speichern</button>
+    {% if ndr_enabled %}
     <form method="post" action="/admin/system/ndr/test-connection"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">IMAP-Verbindung ohne Löschung testen</button></form>
-    <form method="post" action="/admin/system/ndr/disable"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Automatische Verarbeitung deaktivieren</button></form>
+    <form class="danger-action" method="post" action="/admin/system/ndr/disable"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Automatische Verarbeitung deaktivieren</button></form>
+    {% endif %}
   </div>
-  {% endif %}
-</section>
-
-<section class="panel"><h2>Verbindung prüfen</h2><p>Prüft Verbindung, STARTTLS und Anmeldung, ohne eine E-Mail zu senden.</p>
-  <form method="post" action="/admin/system/smtp/test-connection"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">SMTP-Verbindung testen</button></form>
 </section>
 
 <section class="panel"><h2>Test-E-Mail senden</h2><p>Sendet eine neutrale Testnachricht an die hier eingegebene Adresse.</p>

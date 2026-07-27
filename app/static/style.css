@@ -132,6 +132,8 @@ textarea { min-height: 12rem; resize: vertical; }
 .screen-actions, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; }
 .screen-actions { margin-top: 1.3rem; }
 .screen-actions form, .actions form { margin: 0; }
+.settings-actions { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.settings-actions .danger-action { margin-left: auto; }
 
 .item-list { list-style: none; padding: 0; margin: 1rem 0; }
 .item-list li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem 0; border-bottom: 1px solid var(--border); }
@@ -167,6 +169,7 @@ th, td { padding: .7rem; border-bottom: 1px solid var(--border); text-align: lef
   .account-settings-primary { grid-template-columns: 1fr; }
   .account-settings-primary p { min-height: 0; }
   .trusted-person-list .actions { justify-content: flex-start; }
+  .settings-actions .danger-action { flex-basis: 100%; margin-left: 0; margin-top: .35rem; }
   .partner-header { align-items: flex-start; }
   .inline-edit { display: block; }
   .inline-edit button { width: 100%; margin-top: .55rem; }
