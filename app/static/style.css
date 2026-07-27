@@ -39,6 +39,7 @@ main { max-width: 72rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
 .public-content h2, .public-content h3, .public-content h4, .public-content h5, .public-content h6 { margin: 1.4em 0 .45em; }
 .public-content p, .public-content ul, .public-content ol { margin: 0 0 1em; }
 .public-content li + li { margin-top: .3em; }
+.public-content hr { margin: 1.6rem 0; border: 0; border-top: 1px solid var(--border); }
 
 .narrow { max-width: 42rem; margin: 0 auto; }
 .hero { max-width: 54rem; padding: 2.5rem 0; }

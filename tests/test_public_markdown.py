@@ -51,3 +51,19 @@ def test_link_attributes_and_labels_are_escaped():
     assert "&lt;b&gt;Label&lt;/b&gt;" in rendered
     assert 'q=&quot;quoted&quot;' in rendered
     assert 'rel="noopener noreferrer"' in rendered
+
+
+def test_source_line_breaks_and_separators_remain_visible():
+    rendered = str(render_public_markdown(
+        "**Christian Bendt**\n"
+        "**C:\\BENDT – IT-Services**\n"
+        "Heinestr. 5\n"
+        "58566 Kierspe\n"
+        "Deutschland\n\n"
+        "---"
+    ))
+
+    assert "</strong><br>\n<strong>" in rendered
+    assert "Heinestr. 5<br>\n58566 Kierspe<br>\nDeutschland" in rendered
+    assert "<hr>" in rendered
+    assert "---" not in rendered

@@ -9,7 +9,7 @@
   <h2>Inhaltssprache</h2>
   <div class="actions">{% for code in supported_languages %}<a class="button {{ 'secondary' if code != content_language }}" href="/admin/public-content?content_language={{ code }}">{{ language_labels[code] }}</a>{% endfor %}</div>
   <p>Tragen Sie Ihre eigenen, geprüften Betreiberinformationen ein. SilentRelay erstellt keine allgemeingültigen Rechtstexte. Rohes HTML wird nie ausgeführt.</p>
-  <details class="markdown-help"><summary>Formatierungshilfe</summary><p>Erlaubt sind Überschriften mit <code>## Überschrift</code>, Listen mit <code>- Eintrag</code> oder <code>1. Eintrag</code>, <code>**fett**</code>, <code>*kursiv*</code> und Links wie <code>[Bezeichnung](https://example.org)</code>. Links dürfen nur mit <code>https://</code>, <code>http://</code> oder <code>mailto:</code> beginnen. Bilder, eingebettete Inhalte und HTML werden nicht dargestellt.</p></details>
+  <details class="markdown-help"><summary>Formatierungshilfe</summary><p>Zeilenumbrüche bleiben sichtbar. Erlaubt sind außerdem Überschriften mit <code>## Überschrift</code>, Trennlinien mit <code>---</code>, Listen mit <code>- Eintrag</code> oder <code>1. Eintrag</code>, <code>**fett**</code>, <code>*kursiv*</code> und Links wie <code>[Bezeichnung](https://example.org)</code>. Links dürfen nur mit <code>https://</code>, <code>http://</code> oder <code>mailto:</code> beginnen. Bilder, eingebettete Inhalte und HTML werden nicht dargestellt.</p></details>
   <form method="post" action="/admin/public-content">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="language_code" value="{{ content_language }}">

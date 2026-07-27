@@ -183,9 +183,10 @@ of duplicating them.
 
 Public operator information is untrusted input even though only the technical
 admin can edit it. Keep its Markdown renderer allowlist-based: escape text and
-attributes, permit only the documented formatting and URL schemes, and never
-enable raw HTML, images, embeds, or arbitrary Markdown extensions. Add both
-positive rendering tests and negative injection tests when changing it.
+attributes, preserve source line breaks, permit only the documented formatting
+and URL schemes, and never enable raw HTML, images, embeds, or arbitrary
+Markdown extensions. Add both positive rendering tests and negative injection
+tests when changing it.
 
 ## Database changes
 

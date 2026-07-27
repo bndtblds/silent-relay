@@ -139,11 +139,11 @@ SilentRelay safely displays the operator text but does not generate universal
 legal wording. The operator remains responsible for the completeness and
 accuracy of the published information.
 
-The text fields support a small, safe subset of Markdown for headings, lists,
-bold or italic text, and links. The formatting help next to the fields shows
-short examples. Links may use `https`, `http`, or `mailto`. HTML, images, and
-embedded content are deliberately not displayed. Always check all three public
-pages after saving.
+The text fields preserve entered line breaks and support a small, safe subset
+of Markdown for headings, separators, lists, bold or italic text, and links.
+The formatting help next to the fields shows short examples. Links may use
+`https`, `http`, or `mailto`. HTML, images, and embedded content are
+deliberately not displayed. Always check all three public pages after saving.
 
 Public pages and the technical administration use the current browser
 language. Account owners select one language when creating an account. That

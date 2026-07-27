@@ -9,6 +9,7 @@ from markupsafe import Markup
 _ORDERED_ITEM = re.compile(r"^\d+[.)]\s+(.+)$")
 _UNORDERED_ITEM = re.compile(r"^[-+*]\s+(.+)$")
 _HEADING = re.compile(r"^(#{1,6})\s+(.+)$")
+_HORIZONTAL_RULE = re.compile(r"^(?:-{3,}|\*{3,}|_{3,})$")
 
 
 def render_public_markdown(source: str) -> Markup:
@@ -20,7 +21,8 @@ def render_public_markdown(source: str) -> Markup:
 
     def flush_paragraph() -> None:
         if paragraph:
-            rendered.append(f"<p>{_render_inline(' '.join(paragraph))}</p>")
+            content = "<br>\n".join(_render_inline(line) for line in paragraph)
+            rendered.append(f"<p>{content}</p>")
             paragraph.clear()
 
     while index < len(lines):
@@ -36,6 +38,12 @@ def render_public_markdown(source: str) -> Markup:
             flush_paragraph()
             level = min(len(heading.group(1)) + 1, 6)
             rendered.append(f"<h{level}>{_render_inline(heading.group(2))}</h{level}>")
+            index += 1
+            continue
+
+        if _HORIZONTAL_RULE.fullmatch(stripped):
+            flush_paragraph()
+            rendered.append("<hr>")
             index += 1
             continue
 
