@@ -5,7 +5,7 @@
 </header>
 
 {% if account.status.value != "active" %}<p class="warning">Benachrichtigungen können eingeschränkt sein. Bitte prüfen Sie Ihre Kontodaten.</p>{% endif %}
-<div class="summary-grid"><div><span>Nächste Kontoprüfung</span><strong>{{ account.next_review_due_at.strftime("%d.%m.%Y") if account.next_review_due_at else "Nach Aktivierung" }}</strong></div><div><span>Dauerhafte Zustellprobleme</span><strong>{{ failures }}</strong></div></div>
+<div class="summary-grid"><div><span>Nächste Kontoprüfung</span><strong>{{ next_review_date }}</strong></div><div><span>Dauerhafte Zustellprobleme</span><strong>{{ failures }}</strong></div></div>
 
 <nav class="section-nav" aria-label="Bereiche der Kontoverwaltung"><a href="#kontoinhaber">Kontoinhaber</a><a href="#partner">Partner</a><a href="#sicherheit">Konto und Sicherheit</a></nav>
 
@@ -78,6 +78,7 @@
 </section>
 
 <section class="panel" id="sicherheit"><h2>Konto und Sicherheit</h2><p>Hier finden Sie selten benötigte Einstellungen. Öffnen Sie nur den Bereich, den Sie ändern möchten.</p>
+  <form class="compact-form" method="post" action="/account/language"><input type="hidden" name="csrf" value="{{ csrf }}"><label>Kontosprache<select name="language_code">{% for code in supported_languages %}<option value="{{ code }}" {% if code == language %}selected{% endif %}>{{ t("language." + code) }}</option>{% endfor %}</select></label><button>Sprache speichern</button></form>
   <form method="post" action="/account/review/confirm"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Kontodaten als aktuell bestätigen</button></form>
   <details><summary>Neuen Kontoinhaber-Zugang erstellen</summary><p>Dadurch werden der bisherige Kontoinhaber-Link und dessen QR-Code sofort ungültig. Für verlorene Zugangsdaten gibt es keine Wiederherstellung.</p><form method="post" action="/account/token/rotate"><input type="hidden" name="csrf" value="{{ csrf }}"><button data-confirm="Der bisherige Kontoinhaber-Link wird sofort ungültig. Wirklich fortfahren?">Neuen Kontoinhaber-Link und QR-Code erstellen</button></form></details>
   <details><summary>Passwort ändern</summary><form class="compact-form" method="post" action="/account/password/change"><input type="hidden" name="csrf" value="{{ csrf }}"><label>Aktuelles Passwort<input type="password" name="current_password" required></label><label>Neues Passwort<input type="password" name="new_password" minlength="12" maxlength="256" required></label><button>Passwort ändern</button></form></details>

@@ -1,13 +1,13 @@
-{% extends "base.html" %}{% block title %}Konto absichern – SilentRelay{% endblock %}{% block content %}
+{% extends "base.html" %}{% block title %}{{ t("setup.title") }}{% endblock %}{% block content %}
 <div class="narrow">
-  <div class="progress" aria-label="Einrichtung: Schritt 3 von 3"><span>✓</span><span>✓</span><span class="active">3</span></div>
-  <span class="eyebrow">Schritt 3 von 3</span><h1>Konto absichern</h1>
-  <p>Das Passwort schützt Ihren Kontoinhaber-Link als zweiter Zugangsfaktor. An die E-Mail-Adresse senden wir anschließend einen Bestätigungslink.</p>
+  <div class="progress" aria-label="{{ t('setup.progress') }}"><span>✓</span><span>✓</span><span class="active">3</span></div>
+  <span class="eyebrow">{{ t("setup.eyebrow") }}</span><h1>{{ t("setup.heading") }}</h1>
+  <p>{{ t("setup.intro") }}</p>
   {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
   <form class="form-card" method="post"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <label for="password">Persönliches Passwort</label><p class="form-hint" id="password-help">Mindestens 12 Zeichen. Verwenden Sie ein Passwort, das Sie nirgendwo sonst nutzen.</p><input id="password" type="password" name="password" minlength="12" maxlength="256" aria-describedby="password-help" autocomplete="new-password" required>
-    <label for="email">Ihre E-Mail-Adresse</label><p class="form-hint" id="email-help">An diese Adresse werden vertrauliche Nachrichten und Kontohinweise gesendet.</p><input id="email" type="email" name="email" aria-describedby="email-help" autocomplete="email" required>
-    <button class="button-large" type="submit">Konto absichern und E-Mail bestätigen</button>
+    <label for="password">{{ t("setup.password") }}</label><p class="form-hint" id="password-help">{{ t("setup.password_hint") }}</p><input id="password" type="password" name="password" minlength="12" maxlength="256" aria-describedby="password-help" autocomplete="new-password" required>
+    <label for="email">{{ t("setup.email") }}</label><p class="form-hint" id="email-help">{{ t("setup.email_hint") }}</p><input id="email" type="email" name="email" aria-describedby="email-help" autocomplete="email" required>
+    <button class="button-large" type="submit">{{ t("setup.submit") }}</button>
   </form>
 </div>
 {% endblock %}

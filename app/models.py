@@ -58,6 +58,7 @@ class Account(Base):
     review_grace_due_at: Mapped[datetime | None] = mapped_column(DateTime)
     is_admin_locked: Mapped[bool] = mapped_column(Boolean, default=False)
     version: Mapped[int] = mapped_column(Integer, default=1)
+    language_code: Mapped[str] = mapped_column(String(16), default="de")
     credential: Mapped["AccountOwnerCredential"] = relationship(back_populates="account", cascade="all, delete-orphan")
 
 

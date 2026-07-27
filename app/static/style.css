@@ -55,7 +55,7 @@ main { max-width: 72rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
 a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 
 label { display: block; margin: 1rem 0 .4rem; font-weight: 700; }
-input, textarea { width: 100%; border: 1px solid #87979f; border-radius: .4rem; padding: .75rem; background: #fff; color: #17222b; font: inherit; }
+input, textarea, select { width: 100%; border: 1px solid #87979f; border-radius: .4rem; padding: .75rem; background: #fff; color: #17222b; font: inherit; }
 input[type="checkbox"] { width: auto; margin-right: .55rem; }
 textarea { min-height: 12rem; resize: vertical; }
 .checkbox { display: flex; align-items: flex-start; font-weight: 500; line-height: 1.45; }

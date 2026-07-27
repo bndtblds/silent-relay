@@ -16,10 +16,25 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.database import engine
+from app.i18n import (
+    LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, translate,
+)
 from app.routers import admin, web
 
 settings = get_settings()
 templates = Jinja2Templates(directory="app/templates")
+
+
+def page_context(request: Request, **values: object) -> dict[str, object]:
+    language = browser_language(request, settings.default_language)
+    return {
+        "request": request,
+        "language": language,
+        "supported_languages": SUPPORTED_LANGUAGES,
+        "language_labels": LANGUAGE_LABELS,
+        "t": lambda key, **arguments: translate(language, key, **arguments),
+        **values,
+    }
 
 
 class JsonFormatter(logging.Formatter):
@@ -63,11 +78,11 @@ async def protection(request: Request, call_next):
         return templates.TemplateResponse(
             request,
             "error.html",
-            {
-                "request": request,
-                "title": "Bitte kurz warten",
-                "message": "Es wurden zu viele Anfragen in kurzer Zeit gesendet. Bitte versuchen Sie es gleich noch einmal.",
-            },
+            page_context(
+                request,
+                title=translate(browser_language(request, settings.default_language), "error.rate_title"),
+                message=translate(browser_language(request, settings.default_language), "error.rate_message"),
+            ),
             status_code=429,
         )
     bucket.append(now)
@@ -109,10 +124,10 @@ async def not_found(request: Request, exc: Exception):
     return templates.TemplateResponse(
         request,
         "error.html",
-        {
-            "request": request,
-            "title": "Seite nicht gefunden",
-            "message": "Die angeforderte Seite ist nicht verfügbar oder der Link ist nicht mehr gültig.",
-        },
+        page_context(
+            request,
+            title=translate(browser_language(request, settings.default_language), "error.not_found_title"),
+            message=translate(browser_language(request, settings.default_language), "error.not_found_message"),
+        ),
         status_code=404,
     )

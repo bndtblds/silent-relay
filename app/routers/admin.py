@@ -8,11 +8,15 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.database import get_db
+from app.i18n import (
+    LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, format_datetime,
+    normalize_language, translate,
+)
 from app.models import (
     Account, AccountStatus, Delivery, DeliveryStatus, Notification, SmtpConfiguration,
 )
 from app.public_site import (
-    DEFAULT_LANGUAGE, load_public_site_content, public_site_content_is_complete,
+    load_public_site_content, public_site_content_is_complete,
     save_public_site_content,
 )
 from app.security.core import FieldCipher, SessionManager, verify_password
@@ -21,12 +25,18 @@ from app.smtp_config import load_email_config, load_email_provider, save_email_c
 
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory="app/templates")
-ACCOUNT_STATUS_LABELS = {
-    AccountStatus.pending_verification: "Bestätigung ausstehend",
-    AccountStatus.active: "Aktiv",
-    AccountStatus.overdue: "Prüfung überfällig",
-    AccountStatus.disabled: "Gesperrt",
-}
+
+
+def admin_context(request: Request, settings: Settings, **values: object) -> dict[str, object]:
+    language = browser_language(request, settings.default_language)
+    return {
+        "request": request,
+        "language": language,
+        "supported_languages": SUPPORTED_LANGUAGES,
+        "language_labels": LANGUAGE_LABELS,
+        "t": lambda key, **arguments: translate(language, key, **arguments),
+        **values,
+    }
 
 
 def admin_session(request: Request, db: Session, settings: Settings):
@@ -39,19 +49,26 @@ def admin_session(request: Request, db: Session, settings: Settings):
 def verify_admin_csrf(request: Request, csrf: str, db: Session, settings: Settings):
     session = admin_session(request, db, settings)
     if not SessionManager(settings).verify_csrf(session, csrf):
-        raise HTTPException(403, "Ungültiger CSRF-Token.")
+        language = browser_language(request, settings.default_language)
+        raise HTTPException(403, translate(language, "error.csrf"))
     return session
 
 
 @router.get("/login", response_class=HTMLResponse)
-def login_form(request: Request):
-    return templates.TemplateResponse(request, "adminlogin.html", {"request": request})
+def login_form(request: Request, settings: Settings = Depends(get_settings)):
+    language = browser_language(request, settings.default_language)
+    return templates.TemplateResponse(
+        request, "adminlogin_en.html" if language == "en" else "adminlogin.html",
+        admin_context(request, settings)
+    )
 
 
 @router.post("/login")
-def login(username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
+def login(request: Request, username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
     if username != settings.admin_username or not verify_password(settings.admin_password_hash, password):
-        raise HTTPException(401, "Anmeldung fehlgeschlagen.")
+        raise HTTPException(401, translate(
+            browser_language(request, settings.default_language), "error.login"
+        ))
     raw, csrf = SessionManager(settings).create(db, "admin")
     db.commit()
     response = RedirectResponse("/admin/accounts", 303)
@@ -77,6 +94,7 @@ def logout(
 @router.get("/accounts", response_class=HTMLResponse)
 def accounts(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
     admin_session(request, db, settings)
+    language = browser_language(request, settings.default_language)
     rows = []
     for account in db.scalars(select(Account)):
         failures = db.scalar(select(func.count()).select_from(Delivery).where(
@@ -85,19 +103,22 @@ def accounts(request: Request, db: Session = Depends(get_db), settings: Settings
         ))
         rows.append({
             "id": account.id,
-            "status": ACCOUNT_STATUS_LABELS[account.status],
+            "status": translate(language, f"status.{account.status.value}"),
             "status_style": "success" if account.status == AccountStatus.active else "pending",
-            "created": account.created_at.strftime("%d.%m.%Y, %H:%M"),
-            "reviewed": account.last_reviewed_at.strftime("%d.%m.%Y, %H:%M") if account.last_reviewed_at else None,
+            "created": format_datetime(account.created_at, language),
+            "reviewed": format_datetime(account.last_reviewed_at, language) if account.last_reviewed_at else None,
             "failures": failures,
         })
-    public_content = load_public_site_content(db)
-    return templates.TemplateResponse(request, "adminaccounts.html", {
-        "request": request,
-        "accounts": rows,
-        "public_content_complete": public_site_content_is_complete(public_content),
-        "csrf": request.cookies.get("sr_admin_csrf", ""),
-    })
+    public_content = load_public_site_content(db, language)
+    return templates.TemplateResponse(
+        request, "adminaccounts_en.html" if language == "en" else "adminaccounts.html",
+        admin_context(
+            request, settings,
+            accounts=rows,
+            public_content_complete=public_site_content_is_complete(public_content),
+            csrf=request.cookies.get("sr_admin_csrf", ""),
+        )
+    )
 
 
 @router.get("/health")
@@ -116,14 +137,18 @@ def system_configuration(request: Request, db: Session = Depends(get_db), settin
     admin_session(request, db, settings)
     config = load_email_config(db, settings, FieldCipher(settings.field_encryption_key))
     stored = db.get(SmtpConfiguration, "default")
-    return templates.TemplateResponse(request, "adminsystem.html", {
-        "request": request,
-        "config": config,
-        "password_configured": bool((stored and stored.encrypted_password) or settings.smtp_password),
-        "stored_in_database": bool(stored),
-        "csrf": request.cookies.get("sr_admin_csrf", ""),
-        "result": request.query_params.get("result"),
-    })
+    language = browser_language(request, settings.default_language)
+    return templates.TemplateResponse(
+        request, "adminsystem_en.html" if language == "en" else "adminsystem.html",
+        admin_context(
+            request, settings,
+            config=config,
+            password_configured=bool((stored and stored.encrypted_password) or settings.smtp_password),
+            stored_in_database=bool(stored),
+            csrf=request.cookies.get("sr_admin_csrf", ""),
+            result=request.query_params.get("result"),
+        )
+    )
 
 
 @router.get("/public-content", response_class=HTMLResponse)
@@ -133,14 +158,22 @@ def public_content_configuration(
     settings: Settings = Depends(get_settings),
 ):
     admin_session(request, db, settings)
-    stored = load_public_site_content(db, DEFAULT_LANGUAGE)
-    return templates.TemplateResponse(request, "adminpubliccontent.html", {
-        "request": request,
-        "content": stored,
-        "complete": public_site_content_is_complete(stored),
-        "csrf": request.cookies.get("sr_admin_csrf", ""),
-        "result": request.query_params.get("result"),
-    })
+    content_language = normalize_language(
+        request.query_params.get("content_language"), settings.default_language
+    )
+    stored = load_public_site_content(db, content_language)
+    language = browser_language(request, settings.default_language)
+    return templates.TemplateResponse(
+        request, "adminpubliccontent_en.html" if language == "en" else "adminpubliccontent.html",
+        admin_context(
+            request, settings,
+            content=stored,
+            content_language=content_language,
+            complete=public_site_content_is_complete(stored),
+            csrf=request.cookies.get("sr_admin_csrf", ""),
+            result=request.query_params.get("result"),
+        )
+    )
 
 
 @router.post("/public-content", response_class=HTMLResponse)
@@ -150,36 +183,45 @@ def update_public_content(
     privacy_text: str = Form(""),
     contact_email: str = Form(""),
     contact_text: str = Form(""),
+    language_code: str = Form("de"),
     csrf: str = Form(...),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     verify_admin_csrf(request, csrf, db, settings)
+    language_code = normalize_language(language_code, settings.default_language)
+    language = browser_language(request, settings.default_language)
     try:
         content = save_public_site_content(
             db,
-            language_code=DEFAULT_LANGUAGE,
+            language_code=language_code,
             imprint_text=imprint_text,
             privacy_text=privacy_text,
             contact_email=contact_email,
             contact_text=contact_text,
+            validation_language=language,
         )
     except ValueError as exc:
-        return templates.TemplateResponse(request, "adminpubliccontent.html", {
-            "request": request,
-            "content": {
+        return templates.TemplateResponse(
+            request, "adminpubliccontent_en.html" if language == "en" else "adminpubliccontent.html",
+            admin_context(
+                request, settings,
+                content={
                 "imprint_text": imprint_text,
                 "privacy_text": privacy_text,
                 "contact_email": contact_email,
                 "contact_text": contact_text,
-            },
-            "complete": False,
-            "csrf": csrf,
-            "error": str(exc),
-        }, status_code=400)
-    audit(db, "public_site_content_updated", language=DEFAULT_LANGUAGE)
+                },
+                complete=False,
+                content_language=language_code,
+                csrf=csrf,
+                error=str(exc),
+            ), status_code=400)
+    audit(db, "public_site_content_updated", language=language_code)
     db.commit()
-    return RedirectResponse("/admin/public-content?result=saved", 303)
+    return RedirectResponse(
+        f"/admin/public-content?content_language={language_code}&result=saved", 303
+    )
 
 
 @router.post("/system/smtp")
@@ -238,8 +280,9 @@ def test_email(
     if "@" not in recipient or len(recipient) > 320:
         return RedirectResponse("/admin/system?result=invalid_recipient", 303)
     result = load_email_provider(db, settings, FieldCipher(settings.field_encryption_key)).send(
-        recipient.strip(), "SilentRelay: Test-E-Mail",
-        "Diese Test-E-Mail bestätigt, dass der SMTP-Versand von SilentRelay funktioniert.",
+        recipient.strip(),
+        translate(browser_language(request, settings.default_language), "email.test_subject"),
+        translate(browser_language(request, settings.default_language), "email.test_body"),
     )
     return RedirectResponse(
         f"/admin/system?result={'email_ok' if result.successful else 'email_failed'}", 303

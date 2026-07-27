@@ -1,16 +1,16 @@
 {% extends "base.html" %}{% block content %}
-<div class="progress" aria-label="Einrichtung: Schritt 2 von 3"><span>✓</span><span class="active">2</span><span>3</span></div>
+<div class="progress"><span>✓</span><span class="active">2</span><span>3</span></div>
 <article class="access-sheet">
-  <span class="eyebrow">Schritt 2 von 3</span><h1>Kontoinhaber-Zugang jetzt sichern</h1>
-  <p class="lead">Mit diesem QR-Code oder Link öffnen Sie künftig Ihre Kontoverwaltung. Er bleibt gültig, wird aber nur jetzt im Klartext angezeigt.</p>
-  <p class="warning">Der Ausdruck ermöglicht zusammen mit Ihrem Passwort den Kontozugriff. Bewahren Sie ihn sicher und nicht offen zugänglich auf.</p>
-  <img class="qr-code" src="data:image/png;base64,{{ qr }}" alt="QR-Code für den Kontoinhaber-Zugang">
+  <span class="eyebrow">{{ t("created.eyebrow") }}</span><h1>{{ t("created.heading") }}</h1>
+  <p class="lead">{{ t("created.lead") }}</p>
+  <p class="warning">{{ t("created.warning") }}</p>
+  <img class="qr-code" src="data:image/png;base64,{{ qr }}" alt="{{ t('created.qr_alt') }}">
   <div class="secret-block">
-    <strong>Persönlicher Kontoinhaber-Link</strong>
+    <strong>{{ t("created.link") }}</strong>
     <div class="secret-row">
       <p class="secret" id="account-owner-link">{{ account_owner_url }}</p>
       <div class="copy-control">
-        <button class="copy-button secondary" type="button" data-copy-target="account-owner-link" aria-label="Kontoinhaber-Link kopieren" title="Link kopieren">
+        <button class="copy-button secondary" type="button" data-copy-target="account-owner-link" data-copy-success="{{ t('site.copied') }}" data-copy-failed="{{ t('site.copy_failed') }}" aria-label="{{ t('created.copy') }}" title="{{ t('site.copy') }}">
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 7V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2M5 8h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z"/></svg>
         </button>
         <span class="copy-status" data-copy-status aria-live="polite"></span>
@@ -19,8 +19,8 @@
   </div>
 </article>
 <div class="screen-actions">
-  <button type="button" data-print-button>Zugangsdaten drucken</button>
-  <a class="button" href="{{ setup_url }}">Ich habe den Zugang gesichert – weiter</a>
+  <button type="button" data-print-button>{{ t("created.print") }}</button>
+  <a class="button" href="{{ setup_url }}">{{ t("created.continue") }}</a>
 </div>
 <script src="/static/print.js" defer></script>
 {% endblock %}

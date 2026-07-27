@@ -9,6 +9,7 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.i18n import normalize_language, translate
 from app.models import (
     Account, AccountOwnerCredential, AccountReview, AccountStatus, AuditLog, ContactMethod,
     Delivery, DeliveryStatus, Notification, NotificationStatus, Partner, ReviewReminder,
@@ -27,10 +28,14 @@ class AccountService:
     def __init__(self, settings: Settings, cipher: FieldCipher):
         self.settings, self.cipher = settings, cipher
 
-    def create(self, db: Session) -> tuple[Account, str, str]:
+    def create(self, db: Session, language_code: str = "de") -> tuple[Account, str, str]:
         if not self.settings.account_creation_enabled:
-            raise PermissionError("Kontoerstellung ist deaktiviert.")
-        account, account_owner_token, setup_token = Account(), generate_token(), generate_token()
+            raise PermissionError(translate(language_code, "home.closed"))
+        account, account_owner_token, setup_token = (
+            Account(language_code=normalize_language(language_code, self.settings.default_language)),
+            generate_token(),
+            generate_token(),
+        )
         db.add(account)
         db.flush()
         db.add(AccountOwnerCredential(
@@ -47,11 +52,15 @@ class AccountService:
         token_hash = keyed_hash(setup_token, self.settings.token_hmac_key)
         credential = db.scalar(select(AccountOwnerCredential).where(AccountOwnerCredential.setup_token_hash == token_hash))
         if not credential or not credential.setup_expires_at or credential.setup_expires_at <= datetime.utcnow():
-            raise LookupError("Ungültiger oder abgelaufener Einrichtungslink.")
+            raise LookupError(translate(self.settings.default_language, "error.setup_link"))
+        language = credential.account.language_code
         normalized_email = email.strip().casefold()
         if "@" not in normalized_email or len(normalized_email) > 320:
-            raise ValueError("Ungültige E-Mail-Adresse.")
-        credential.password_hash = hash_password(password)
+            raise ValueError(translate(language, "error.email"))
+        try:
+            credential.password_hash = hash_password(password)
+        except ValueError as exc:
+            raise ValueError(translate(language, "error.password_length")) from exc
         credential.password_changed_at = datetime.utcnow()
         credential.setup_token_hash = None
         credential.setup_expires_at = None
@@ -67,13 +76,13 @@ class AccountService:
         db.commit()
         return credential.account, verification_token
 
-    def verify_contact(self, db: Session, token: str) -> bool:
+    def verify_contact(self, db: Session, token: str) -> Account | None:
         contact = db.scalar(select(ContactMethod).where(
             ContactMethod.verification_token_hash == keyed_hash(token, self.settings.token_hmac_key),
             ContactMethod.verification_expires_at > datetime.utcnow(),
         ))
         if not contact:
-            return False
+            return None
         now = datetime.utcnow()
         contact.is_verified, contact.verified_at = True, now
         contact.verification_token_hash, contact.verification_expires_at = None, None
@@ -83,7 +92,7 @@ class AccountService:
             self._create_review(db, account, now + timedelta(days=self.settings.account_review_interval_days))
         audit(db, "contact_verified", contact.account_id)
         db.commit()
-        return True
+        return account
 
     def _create_review(self, db: Session, account: Account, due: datetime) -> AccountReview:
         review = AccountReview(account_id=account.id, review_due_at=due)
@@ -272,14 +281,17 @@ class NotificationService:
         return person
 
     @staticmethod
-    def normalize_message(message: str) -> str:
+    def normalize_message(message: str, language: str = "de") -> str:
         value = unicodedata.normalize("NFC", message).strip()
         if not 10 <= len(value) <= 5000:
-            raise ValueError("Die Nachricht muss 10 bis 5000 Zeichen lang sein.")
+            raise ValueError(translate(language, "error.message_length"))
         return value
 
     def stage(self, db: Session, person: TrustedPerson, message: str) -> str:
-        value, raw = self.normalize_message(message), generate_token()
+        account = db.get(Account, person.account_id)
+        value, raw = self.normalize_message(
+            message, account.language_code if account else self.settings.default_language
+        ), generate_token()
         db.add(Submission(
             id_hash=keyed_hash(raw, self.settings.token_hmac_key),
             trusted_person_id=person.id,
@@ -344,10 +356,16 @@ class DeliveryService:
                 if not provider:
                     delivery.status = DeliveryStatus.permanent_failure
                 else:
+                    account = db.get(Account, notification.account_id)
+                    language = account.language_code if account else self.settings.default_language
                     result = provider.send(
-                        self.cipher.decrypt(contact.encrypted_value), "Vertrauliche Mitteilung",
-                        "Eine Vertrauensperson hat folgende vertrauliche Nachricht übermittelt:\n\n"
-                        + self.cipher.decrypt(notification.encrypted_message_payload),
+                        self.cipher.decrypt(contact.encrypted_value),
+                        translate(language, "email.notification_subject"),
+                        translate(
+                            language,
+                            "email.notification_body",
+                            message=self.cipher.decrypt(notification.encrypted_message_payload),
+                        ),
                     )
                     if result.successful:
                         delivery.status, delivery.delivered_at = DeliveryStatus.delivered, now

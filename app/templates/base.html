@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="{{ language }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -9,9 +9,9 @@
   <script src="/static/ui.js" defer></script>
 </head>
 <body>
-  <a class="skip-link" href="#main-content">Direkt zum Inhalt</a>
-  <header class="site-header"><a class="brand" href="/" aria-label="SilentRelay Startseite"><span class="brand-mark" aria-hidden="true">SR</span><span>SilentRelay</span></a><span class="brand-note">Vertrauliche Benachrichtigungen</span></header>
+  <a class="skip-link" href="#main-content">{{ t("site.skip") }}</a>
+  <header class="site-header"><a class="brand" href="/" aria-label="{{ t('site.start') }}"><span class="brand-mark" aria-hidden="true">SR</span><span>SilentRelay</span></a><span class="brand-note">{{ t("site.tagline") }}</span></header>
   <main id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
-  <footer class="site-footer"><p>SilentRelay ersetzt keinen Notruf. Wählen Sie in akuten Notfällen die örtliche Notrufnummer.</p><nav class="footer-nav" aria-label="Rechtliches und Kontakt"><a href="/imprint">Impressum</a><a href="/privacy">Datenschutz</a><a href="/contact">Kontakt</a></nav></footer>
+  <footer class="site-footer"><p>{{ t("site.emergency") }}</p><nav class="footer-nav" aria-label="{{ t('site.footer_nav') }}"><a href="/imprint">{{ t("site.imprint") }}</a><a href="/privacy">{{ t("site.privacy") }}</a><a href="/contact">{{ t("site.contact") }}</a></nav></footer>
 </body>
 </html>

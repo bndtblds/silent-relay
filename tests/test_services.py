@@ -20,9 +20,11 @@ class SuccessfulProvider:
 
     def __init__(self):
         self.recipients = []
+        self.messages = []
 
     def send(self, recipient, subject, body):
         self.recipients.append(recipient)
+        self.messages.append((recipient, subject, body))
         return DeliveryResult(True, message_id="test-id")
 
 
@@ -150,6 +152,24 @@ def test_delivery_success_removes_message(db, settings, cipher):
     assert notification.status == NotificationStatus.delivered
     assert notification.encrypted_message_payload is None
     assert provider.recipients == ["owner@example.org"]
+
+
+def test_delivery_email_uses_account_language(db, settings, cipher):
+    account = active_account(db, settings, cipher)
+    account.language_code = "en"
+    management = ManagementService(settings, cipher)
+    origin = management.add_partner(db, account.id, "Origin")
+    _, token = management.add_trusted_person(db, account.id, "partner", origin.id, "")
+    service = NotificationService(settings, cipher)
+    notification = service.accept(
+        db, service.stage(db, service.resolve_person(db, token), "A sufficiently long message.")
+    )
+    provider = SuccessfulProvider()
+    DeliveryService(settings, cipher, {"email": provider}).process_due(db)
+    assert provider.messages[0][1] == "Confidential notification"
+    assert "A trusted person submitted" in provider.messages[0][2]
+    db.refresh(notification)
+    assert notification.encrypted_message_payload is None
 
 
 def test_temporary_delivery_failure_schedules_retry(db, settings, cipher):

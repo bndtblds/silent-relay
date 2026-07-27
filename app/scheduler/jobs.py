@@ -6,7 +6,8 @@ from sqlalchemy import select
 
 from app.config import Settings
 from app.database import SessionLocal
-from app.models import AccountReview, ContactMethod, ReviewReminder
+from app.i18n import format_date, translate
+from app.models import Account, AccountReview, ContactMethod, ReviewReminder
 from app.security.core import FieldCipher, SessionManager
 from app.services import DeliveryService, LifecycleService
 from app.smtp_config import load_email_provider
@@ -33,11 +34,18 @@ def run_jobs(settings: Settings) -> dict[str, int]:
                 ContactMethod.is_verified.is_(True),
                 ContactMethod.is_active.is_(True),
             )))
+            account = db.get(Account, review.account_id)
+            language = account.language_code if account else settings.default_language
             all_sent = bool(contacts)
             for contact in contacts:
                 result = provider.send(
-                    cipher.decrypt(contact.encrypted_value), "SilentRelay: Kontoprüfung",
-                    f"Bitte prüfen und bestätigen Sie Ihr SilentRelay-Konto. Fälligkeit: {review.review_due_at.date().isoformat()}",
+                    cipher.decrypt(contact.encrypted_value),
+                    translate(language, "email.review_subject"),
+                    translate(
+                        language,
+                        "email.review_body",
+                        due=format_date(review.review_due_at, language),
+                    ),
                 )
                 all_sent = all_sent and result.successful
             if all_sent:

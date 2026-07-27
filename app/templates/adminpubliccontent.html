@@ -6,10 +6,12 @@
 {% if not complete %}<p class="warning"><strong>Einrichtung noch nicht abgeschlossen.</strong> Impressum, Datenschutzhinweise und Kontaktadresse müssen vollständig gespeichert werden.</p>{% endif %}
 
 <section class="panel">
-  <h2>Deutsche Fassung</h2>
+  <h2>Inhaltssprache</h2>
+  <div class="actions">{% for code in supported_languages %}<a class="button {{ 'secondary' if code != content_language }}" href="/admin/public-content?content_language={{ code }}">{{ language_labels[code] }}</a>{% endfor %}</div>
   <p>Tragen Sie Ihre eigenen, geprüften Betreiberinformationen als Klartext ein. SilentRelay erstellt keine allgemeingültigen Rechtstexte. Eingaben werden nicht als HTML ausgeführt.</p>
   <form method="post" action="/admin/public-content">
     <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="language_code" value="{{ content_language }}">
     <label for="imprint_text">Impressum</label>
     <p class="form-hint">Zum Beispiel Name, ladungsfähige Anschrift, Vertretungsberechtigte und weitere für Ihren Betrieb erforderliche Angaben.</p>
     <textarea id="imprint_text" name="imprint_text" maxlength="20000" required>{{ content.imprint_text if content else "" }}</textarea>
@@ -29,5 +31,5 @@
   </form>
 </section>
 
-{% if complete %}<section class="panel"><h2>Öffentliche Seiten prüfen</h2><div class="actions"><a href="/imprint">Impressum öffnen</a><a href="/privacy">Datenschutz öffnen</a><a href="/contact">Kontakt öffnen</a></div></section>{% endif %}
+{% if complete %}<section class="panel"><h2>Öffentliche Seiten prüfen</h2><div class="actions"><a href="/imprint?lang={{ content_language }}">Impressum öffnen</a><a href="/privacy?lang={{ content_language }}">Datenschutz öffnen</a><a href="/contact?lang={{ content_language }}">Kontakt öffnen</a></div></section>{% endif %}
 {% endblock %}

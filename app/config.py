@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     smtp_from_address: str = "silent-relay@localhost"
     smtp_from_name: str = "SilentRelay"
     account_creation_enabled: bool = True
+    default_language: str = "de"
     account_pending_retention_days: int = 7
     account_review_interval_days: int = 180
     account_review_reminder_days: Annotated[list[int], NoDecode] = [-30, -15, -3, 0, 30]
@@ -57,6 +58,14 @@ class Settings(BaseSettings):
         if isinstance(value, list):
             return sorted(set(value))
         return value
+
+    @field_validator("default_language")
+    @classmethod
+    def validate_default_language(cls, value: str) -> str:
+        language = value.strip().lower()
+        if language not in {"de", "en"}:
+            raise ValueError("DEFAULT_LANGUAGE must be 'de' or 'en'")
+        return language
 
     @field_validator("field_encryption_key")
     @classmethod

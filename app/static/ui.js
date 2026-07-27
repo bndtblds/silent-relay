@@ -37,10 +37,10 @@ document.querySelectorAll("[data-copy-target]").forEach((button) => {
 
     try {
       await copyText(target.textContent.trim());
-      status.textContent = "Kopiert";
-      button.title = "Link kopiert";
+      status.textContent = button.dataset.copySuccess || "Copied";
+      button.title = button.dataset.copySuccess || "Copied";
     } catch {
-      status.textContent = "Kopieren nicht möglich";
+      status.textContent = button.dataset.copyFailure || "Copy failed";
     }
   });
 });

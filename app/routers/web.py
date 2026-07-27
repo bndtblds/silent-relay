@@ -14,12 +14,16 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.database import get_db
 from app.dependencies import account_owner_account, account_owner_session
+from app.i18n import (
+    LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, format_date, normalize_language,
+    translate,
+)
 from app.models import (
-    Account, AccountStatus, ContactMethod, Delivery, DeliveryStatus, Partner, ServerSession,
-    TrustedPerson, TrustedPersonToken,
+    Account, AccountOwnerCredential, AccountStatus, ContactMethod, Delivery, DeliveryStatus,
+    Partner, ServerSession, TrustedPerson, TrustedPersonToken,
 )
 from app.providers.email import EmailNotificationProvider
-from app.public_site import load_public_site_content
+from app.public_site import load_public_site_content_with_fallback
 from app.security.core import FieldCipher, SessionManager, generate_token, hash_password, keyed_hash, verify_password
 from app.services import AccountService, AuthenticationService, DeliveryService, ManagementService, NotificationService
 from app.smtp_config import load_email_provider
@@ -28,8 +32,16 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 
-def context(request: Request, **values: object) -> dict[str, object]:
-    return {"request": request, **values}
+def context(request: Request, language: str = "de", **values: object) -> dict[str, object]:
+    language = normalize_language(language)
+    return {
+        "request": request,
+        "language": language,
+        "supported_languages": SUPPORTED_LANGUAGES,
+        "language_labels": LANGUAGE_LABELS,
+        "t": lambda key, **arguments: translate(language, key, **arguments),
+        **values,
+    }
 
 
 def csrf_guard(request: Request, session: ServerSession, settings: Settings, csrf: str) -> None:
@@ -44,10 +56,21 @@ def qr_data(url: str) -> str:
     return base64.b64encode(stream.getvalue()).decode()
 
 
-def public_form_response(request: Request, db: Session, settings: Settings, template: str, **values: object):
-    raw_session, raw_csrf = SessionManager(settings).create(db, "public")
+def public_form_response(
+    request: Request,
+    db: Session,
+    settings: Settings,
+    template: str,
+    *,
+    language: str,
+    account_id: str | None = None,
+    **values: object,
+):
+    raw_session, raw_csrf = SessionManager(settings).create(db, "public", account_id)
     db.commit()
-    response = templates.TemplateResponse(request, template, context(request, csrf=raw_csrf, **values))
+    response = templates.TemplateResponse(
+        request, template, context(request, language, csrf=raw_csrf, **values)
+    )
     response.set_cookie("sr_public", raw_session, secure=settings.secure_cookies, httponly=True, samesite="strict", max_age=900)
     return response
 
@@ -60,40 +83,62 @@ def public_csrf_guard(request: Request, db: Session, settings: Settings, csrf: s
 
 @router.get("/", response_class=HTMLResponse)
 def index(request: Request, settings: Settings = Depends(get_settings)):
-    return templates.TemplateResponse(request, "index.html", context(request, creation_enabled=settings.account_creation_enabled))
+    language = browser_language(request, settings.default_language, allow_query=True)
+    return templates.TemplateResponse(
+        request, "index.html",
+        context(request, language, creation_enabled=settings.account_creation_enabled),
+    )
 
 
 @router.get("/imprint", response_class=HTMLResponse)
-def imprint(request: Request, db: Session = Depends(get_db)):
-    content = load_public_site_content(db)
+def imprint(
+    request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+):
+    language = browser_language(request, settings.default_language, allow_query=True)
+    content, fallback = load_public_site_content_with_fallback(
+        db, language, settings.default_language
+    )
     return templates.TemplateResponse(request, "publiccontent.html", context(
-        request,
-        title="Impressum",
+        request, language,
+        title=translate(language, "site.imprint"),
         body=content.imprint_text if content else "",
-        missing_message="Das Impressum wurde vom Betreiber noch nicht hinterlegt.",
+        fallback=fallback,
+        missing_message=translate(language, "public.imprint_missing"),
     ))
 
 
 @router.get("/privacy", response_class=HTMLResponse)
-def privacy(request: Request, db: Session = Depends(get_db)):
-    content = load_public_site_content(db)
+def privacy(
+    request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+):
+    language = browser_language(request, settings.default_language, allow_query=True)
+    content, fallback = load_public_site_content_with_fallback(
+        db, language, settings.default_language
+    )
     return templates.TemplateResponse(request, "publiccontent.html", context(
-        request,
-        title="Datenschutz",
+        request, language,
+        title=translate(language, "site.privacy"),
         body=content.privacy_text if content else "",
-        missing_message="Die Datenschutzhinweise wurden vom Betreiber noch nicht hinterlegt.",
+        fallback=fallback,
+        missing_message=translate(language, "public.privacy_missing"),
     ))
 
 
 @router.get("/contact", response_class=HTMLResponse)
-def contact(request: Request, db: Session = Depends(get_db)):
-    content = load_public_site_content(db)
+def contact(
+    request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+):
+    language = browser_language(request, settings.default_language, allow_query=True)
+    content, fallback = load_public_site_content_with_fallback(
+        db, language, settings.default_language
+    )
     return templates.TemplateResponse(request, "publiccontent.html", context(
-        request,
-        title="Kontakt",
+        request, language,
+        title=translate(language, "site.contact"),
         body=content.contact_text if content else "",
         contact_email=content.contact_email if content else "",
-        missing_message="Die Kontaktadresse wurde vom Betreiber noch nicht hinterlegt.",
+        fallback=fallback,
+        missing_message=translate(language, "public.contact_missing"),
     ))
 
 
@@ -101,23 +146,48 @@ def contact(request: Request, db: Session = Depends(get_db)):
 def create_form(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
     if not settings.account_creation_enabled:
         raise HTTPException(404)
-    return public_form_response(request, db, settings, "create.html")
+    language = browser_language(request, settings.default_language, allow_query=True)
+    return public_form_response(request, db, settings, "create.html", language=language)
 
 
 @router.post("/account/create", response_class=HTMLResponse)
-def create_account(request: Request, csrf: str = Form(...), db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
+def create_account(
+    request: Request,
+    csrf: str = Form(...),
+    language_code: str = Form("de"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
     public_csrf_guard(request, db, settings, csrf)
-    account, account_owner_token, setup_token = AccountService(settings, FieldCipher(settings.field_encryption_key)).create(db)
+    language = normalize_language(language_code, settings.default_language)
+    account, account_owner_token, setup_token = AccountService(
+        settings, FieldCipher(settings.field_encryption_key)
+    ).create(db, language)
     account_owner_url = f"{settings.app_base_url}/account/{account_owner_token}"
     setup_url = f"{settings.app_base_url}/account/setup/{setup_token}"
     return templates.TemplateResponse(request, "created.html", context(
-        request, account_owner_url=account_owner_url, setup_url=setup_url, qr=qr_data(account_owner_url)
+        request, account.language_code, account_owner_url=account_owner_url,
+        setup_url=setup_url, qr=qr_data(account_owner_url)
     ))
 
 
 @router.get("/account/setup/{token}", response_class=HTMLResponse)
 def setup_form(token: str, request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    return public_form_response(request, db, settings, "setup.html", token=token)
+    credential = db.scalar(select(AccountOwnerCredential).where(
+        AccountOwnerCredential.setup_token_hash == keyed_hash(token, settings.token_hmac_key),
+        AccountOwnerCredential.setup_expires_at > datetime.utcnow(),
+    ))
+    if not credential:
+        raise HTTPException(404)
+    return public_form_response(
+        request,
+        db,
+        settings,
+        "setup.html",
+        language=credential.account.language_code,
+        account_id=credential.account_id,
+        token=token,
+    )
 
 
 @router.post("/account/setup/{token}", response_class=HTMLResponse)
@@ -126,40 +196,72 @@ def setup_account(
     db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
 ):
     public_csrf_guard(request, db, settings, csrf)
+    credential = db.scalar(select(AccountOwnerCredential).where(
+        AccountOwnerCredential.setup_token_hash == keyed_hash(token, settings.token_hmac_key)
+    ))
+    language = credential.account.language_code if credential else settings.default_language
     try:
-        _, verification = AccountService(settings, FieldCipher(settings.field_encryption_key)).setup(db, token, password, email)
+        account, verification = AccountService(
+            settings, FieldCipher(settings.field_encryption_key)
+        ).setup(db, token, password, email)
+        language = account.language_code
     except (LookupError, ValueError) as exc:
-        return templates.TemplateResponse(request, "setup.html", context(request, token=token, csrf=csrf, error=str(exc)), status_code=400)
+        return templates.TemplateResponse(
+            request,
+            "setup.html",
+            context(request, language, token=token, csrf=csrf, error=str(exc)),
+            status_code=400,
+        )
     verify_url = f"{settings.app_base_url}/verify-contact/{verification}"
     provider = load_email_provider(db, settings, FieldCipher(settings.field_encryption_key))
-    result = provider.send(email.strip(), "SilentRelay: Kontakt bestätigen", f"Bestätigen Sie Ihren Kontakt:\n\n{verify_url}")
-    return templates.TemplateResponse(request, "setup_done.html", context(request, mail_sent=result.successful, verify_url=verify_url))
+    result = provider.send(
+        email.strip(),
+        translate(language, "email.verify_subject"),
+        translate(
+            language,
+            "email.verify_body",
+            url=verify_url,
+            privacy_url=f"{settings.app_base_url}/privacy",
+        ),
+    )
+    return templates.TemplateResponse(
+        request,
+        "setup_done.html",
+        context(request, language, mail_sent=result.successful, verify_url=verify_url),
+    )
 
 
 @router.get("/verify-contact/{token}", response_class=HTMLResponse)
 def verify_contact(token: str, request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    if not AccountService(settings, FieldCipher(settings.field_encryption_key)).verify_contact(db, token):
+    account = AccountService(settings, FieldCipher(settings.field_encryption_key)).verify_contact(db, token)
+    if not account:
         raise HTTPException(404)
     return templates.TemplateResponse(request, "message.html", context(
-        request,
-        title="Kontakt bestätigt",
-        message="Das Konto ist jetzt aktiv.",
-        next_step="Öffnen Sie jetzt Ihren zuvor gespeicherten Kontoinhaber-Link oder scannen Sie den Kontoinhaber-QR-Code, um sich anzumelden.",
+        request, account.language_code,
+        title=translate(account.language_code, "verify.title"),
+        message=translate(account.language_code, "verify.message"),
+        next_step=translate(account.language_code, "verify.next"),
     ))
 
 
 def account_owner_login_form(token: str, request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    if not AuthenticationService(settings).credential_for_token(db, token):
+    credential = AuthenticationService(settings).credential_for_token(db, token)
+    if not credential:
         raise HTTPException(404)
-    return templates.TemplateResponse(request, "login.html", context(request, token=token))
+    return templates.TemplateResponse(
+        request, "login.html", context(request, credential.account.language_code, token=token)
+    )
 
 
 def account_owner_login(
-    token: str, password: str = Form(...), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+    token: str, request: Request, password: str = Form(...),
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
 ):
     account = AuthenticationService(settings).login(db, token, password)
     if not account or account.is_admin_locked:
-        raise HTTPException(401, "Anmeldung fehlgeschlagen.")
+        credential = AuthenticationService(settings).credential_for_token(db, token)
+        language = credential.account.language_code if credential else settings.default_language
+        raise HTTPException(401, translate(language, "error.login"))
     raw_session, raw_csrf = SessionManager(settings).create(db, "account_owner", account.id)
     db.commit()
     response = RedirectResponse("/account/dashboard", 303)
@@ -210,8 +312,16 @@ def dashboard(
     verified_partner_contact_count = sum(
         sum(1 for contact in partner["contacts"] if contact["verified"]) for partner in partner_rows
     )
-    return templates.TemplateResponse(request, "dashboard.html", context(
-        request, account=account, contacts=[{"id": c.id, "value": cipher.decrypt(c.encrypted_value), "verified": c.is_verified} for c in contacts],
+    return templates.TemplateResponse(
+        request, "dashboard_en.html" if account.language_code == "en" else "dashboard.html",
+        context(
+        request, account.language_code, account=account,
+        next_review_date=(
+            translate(account.language_code, "dashboard.after_activation")
+            if not account.next_review_due_at
+            else format_date(account.next_review_due_at, account.language_code)
+        ),
+        contacts=[{"id": c.id, "value": cipher.decrypt(c.encrypted_value), "verified": c.is_verified} for c in contacts],
         partners=partner_rows,
         owner_people=[
             {
@@ -223,14 +333,7 @@ def dashboard(
             for person in owner_people
         ],
         failures=failures, csrf=request.cookies.get("sr_account_owner_csrf", ""),
-        status_label={
-            "pending_verification": "Bestätigung ausstehend",
-            "active": "Aktiv",
-            "overdue": "Prüfung überfällig",
-            "disabled": "Deaktiviert",
-            "scheduled_for_deletion": "Zur Löschung vorgemerkt",
-            "deleted": "Gelöscht",
-        }.get(account.status.value, account.status.value),
+        status_label=translate(account.language_code, f"status.{account.status.value}"),
         setup_steps={
             "owner_contact": any(contact.is_verified for contact in contacts),
             "partner": bool(partners),
@@ -252,6 +355,22 @@ def dashboard(
             ),
         },
     ))
+
+
+@router.post("/account/language")
+def change_account_language(
+    request: Request,
+    language_code: str = Form(...),
+    csrf: str = Form(...),
+    account: Account = Depends(account_owner_account),
+    session: ServerSession = Depends(account_owner_session),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    csrf_guard(request, session, settings, csrf)
+    account.language_code = normalize_language(language_code, account.language_code)
+    db.commit()
+    return RedirectResponse("/account/dashboard", 303)
 
 
 @router.post("/account/logout")
@@ -288,7 +407,12 @@ def add_contact(
     )
     verify_url = f"{settings.app_base_url}/verify-contact/{token}"
     load_email_provider(db, settings, FieldCipher(settings.field_encryption_key)).send(
-        value, "SilentRelay: Kontakt bestätigen", f"Bestätigen Sie Ihren Kontakt:\n\n{verify_url}"
+        value,
+        translate(account.language_code, "email.verify_subject"),
+        translate(
+            account.language_code, "email.verify_body", url=verify_url,
+            privacy_url=f"{settings.app_base_url}/privacy",
+        ),
     )
     return RedirectResponse("/account/dashboard", 303)
 
@@ -310,7 +434,12 @@ def resend_contact_verification(
     value = FieldCipher(settings.field_encryption_key).decrypt(contact.encrypted_value)
     verify_url = f"{settings.app_base_url}/verify-contact/{token}"
     load_email_provider(db, settings, FieldCipher(settings.field_encryption_key)).send(
-        value, "SilentRelay: Kontakt bestätigen", f"Bestätigen Sie Ihren Kontakt:\n\n{verify_url}"
+        value,
+        translate(account.language_code, "email.verify_subject"),
+        translate(
+            account.language_code, "email.verify_body", url=verify_url,
+            privacy_url=f"{settings.app_base_url}/privacy",
+        ),
     )
     return RedirectResponse("/account/dashboard", 303)
 
@@ -415,7 +544,10 @@ def add_person(
         db, account.id, "partner", partner_id, name
     )
     url = f"{settings.app_base_url}/notify/{token}"
-    return templates.TemplateResponse(request, "token.html", context(request, title="QR-Code der Vertrauensperson", url=url, qr=qr_data(url)))
+    return templates.TemplateResponse(request, "token.html", context(
+        request, account.language_code, title=translate(account.language_code, "token.trusted_title"),
+        url=url, qr=qr_data(url)
+    ))
 
 
 @router.post("/account/trusted-persons", response_class=HTMLResponse)
@@ -430,7 +562,8 @@ def add_owner_person(
     )
     url = f"{settings.app_base_url}/notify/{token}"
     return templates.TemplateResponse(request, "token.html", context(
-        request, title="QR-Code Ihrer Vertrauensperson", url=url, qr=qr_data(url)
+        request, account.language_code,
+        title=translate(account.language_code, "token.owner_trusted_title"), url=url, qr=qr_data(url)
     ))
 
 
@@ -442,7 +575,10 @@ def rotate_person(
     csrf_guard(request, session, settings, csrf)
     token = ManagementService(settings, FieldCipher(settings.field_encryption_key)).rotate_trusted_token(db, account.id, person_id)
     url = f"{settings.app_base_url}/notify/{token}"
-    return templates.TemplateResponse(request, "token.html", context(request, title="Neuer QR-Code", url=url, qr=qr_data(url)))
+    return templates.TemplateResponse(request, "token.html", context(
+        request, account.language_code, title=translate(account.language_code, "token.new_title"),
+        url=url, qr=qr_data(url)
+    ))
 
 
 def owned_person(db: Session, account_id: str, person_id: str) -> TrustedPerson | None:
@@ -500,7 +636,10 @@ def rotate_account_owner(
     csrf_guard(request, session, settings, csrf)
     token = AuthenticationService(settings).rotate_account_owner_token(db, account.id)
     url = f"{settings.app_base_url}/account/{token}"
-    return templates.TemplateResponse(request, "token.html", context(request, title="Neuer Kontoinhaber-Zugang", url=url, qr=qr_data(url), recovery=True))
+    return templates.TemplateResponse(request, "token.html", context(
+        request, account.language_code, title=translate(account.language_code, "token.owner_title"),
+        url=url, qr=qr_data(url), recovery=True
+    ))
 
 
 @router.post("/account/password/change")
@@ -511,7 +650,7 @@ def change_password(
 ):
     csrf_guard(request, session, settings, csrf)
     if not verify_password(account.credential.password_hash, current_password):
-        raise HTTPException(401, "Anmeldung fehlgeschlagen.")
+        raise HTTPException(401, translate(account.language_code, "error.login"))
     account.credential.password_hash = hash_password(new_password)
     account.credential.password_changed_at = datetime.utcnow()
     db.commit()
@@ -525,7 +664,7 @@ def delete_account(
 ):
     csrf_guard(request, session, settings, csrf)
     if not verify_password(account.credential.password_hash, password):
-        raise HTTPException(401, "Anmeldung fehlgeschlagen.")
+        raise HTTPException(401, translate(account.language_code, "error.login"))
     db.delete(account)
     db.commit()
     response = RedirectResponse("/", 303)
@@ -542,10 +681,15 @@ router.add_api_route("/account/{token}/login", account_owner_login, methods=["PO
 
 @router.get("/notify/{token}", response_class=HTMLResponse)
 def notify_form(token: str, request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    if not NotificationService(settings, FieldCipher(settings.field_encryption_key)).resolve_person(db, token):
+    person = NotificationService(settings, FieldCipher(settings.field_encryption_key)).resolve_person(db, token)
+    if not person:
         raise HTTPException(404)
+    account = db.get(Account, person.account_id)
     db.commit()
-    return public_form_response(request, db, settings, "notify.html", token=token)
+    return public_form_response(
+        request, db, settings, "notify.html", language=account.language_code,
+        account_id=person.account_id, token=token
+    )
 
 
 @router.post("/notify/{token}", response_class=HTMLResponse)
@@ -558,11 +702,20 @@ def notify_stage(
     person = service.resolve_person(db, token)
     if not person:
         raise HTTPException(404)
+    account = db.get(Account, person.account_id)
+    language = account.language_code
     try:
         submission = service.stage(db, person, message)
     except ValueError as exc:
-        return templates.TemplateResponse(request, "notify.html", context(request, token=token, csrf=csrf, error=str(exc)), status_code=400)
-    return templates.TemplateResponse(request, "confirm.html", context(request, token=token, submission=submission, message=message, csrf=csrf))
+        return templates.TemplateResponse(
+            request, "notify.html",
+            context(request, language, token=token, csrf=csrf, error=str(exc)),
+            status_code=400
+        )
+    return templates.TemplateResponse(
+        request, "confirm.html",
+        context(request, language, token=token, submission=submission, message=message, csrf=csrf)
+    )
 
 
 @router.post("/notify/{token}/confirm")
@@ -572,24 +725,31 @@ def notify_confirm(
 ):
     public_csrf_guard(request, db, settings, csrf)
     service = NotificationService(settings, FieldCipher(settings.field_encryption_key))
-    if not service.resolve_person(db, token):
+    person = service.resolve_person(db, token)
+    if not person:
         raise HTTPException(404)
     try:
         service.accept(db, submission)
     except LookupError:
-        raise HTTPException(409, "Diese Nachricht wurde bereits verarbeitet oder ist abgelaufen.")
+        account = db.get(Account, person.account_id)
+        raise HTTPException(409, translate(account.language_code, "error.submission"))
     cipher = FieldCipher(settings.field_encryption_key)
     DeliveryService(settings, cipher, {"email": load_email_provider(db, settings, cipher)}).process_due(db)
     return RedirectResponse("/notification/success", 303)
 
 
 @router.get("/notification/success", response_class=HTMLResponse)
-def success(request: Request):
+def success(
+    request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+):
+    session = SessionManager(settings).resolve(db, request.cookies.get("sr_public"), "public")
+    account = db.get(Account, session.account_id) if session and session.account_id else None
+    language = account.language_code if account else browser_language(request, settings.default_language)
     return templates.TemplateResponse(request, "message.html", context(
-        request,
-        title="Nachricht übermittelt",
-        message="Die vertrauliche Nachricht wurde zur Zustellung angenommen.",
-        next_step="Sie müssen nichts weiter tun. Schließen Sie diese Seite, damit der persönliche Zugangslink nicht offen bleibt.",
+        request, language,
+        title=translate(language, "success.title"),
+        message=translate(language, "success.message"),
+        next_step=translate(language, "success.next"),
     ))
 
 

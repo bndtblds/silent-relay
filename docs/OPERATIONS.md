@@ -95,6 +95,10 @@ The setup asks for:
 - the technical administrator's username; and
 - the technical administrator's password.
 
+German is the default fallback language. To use English when a browser does not
+request a supported language, set `DEFAULT_LANGUAGE=en` in `.env`. Supported
+values are `de` and `en`.
+
 It then creates the private configuration, starts SilentRelay, initializes the
 database, and checks whether the application is ready. It does not store the
 administrator password in clear text.
@@ -122,7 +126,8 @@ domains redirect to the primary domain.
 5. Send a test email.
 6. Open **Public information** in the administration area.
 7. Add the operator's reviewed imprint, privacy information, and public contact
-   address.
+   address for German and English. If one version is missing, visitors see the
+   configured fallback language together with a clear notice.
 8. Open the public imprint, privacy, and contact pages from the footer and
    verify their content.
 9. Open the public start page and create the first SilentRelay account.
@@ -133,6 +138,11 @@ not take the SilentRelay website offline.
 SilentRelay safely displays the operator text but does not generate universal
 legal wording. The operator remains responsible for the completeness and
 accuracy of the published information.
+
+Public pages and the technical administration use the current browser
+language. Account owners select one language when creating an account. That
+choice then applies consistently to account pages, trusted-person pages, and
+emails, regardless of later browser settings.
 
 ## Check the running system
 

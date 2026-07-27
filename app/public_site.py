@@ -4,9 +4,9 @@ import re
 
 from sqlalchemy.orm import Session
 
+from app.i18n import DEFAULT_LANGUAGE, normalize_language, translate
 from app.models import PublicSiteContent
 
-DEFAULT_LANGUAGE = "de"
 _LANGUAGE_PATTERN = re.compile(r"[a-z]{2}(?:-[A-Z]{2})?")
 
 
@@ -14,6 +14,16 @@ def load_public_site_content(
     db: Session, language_code: str = DEFAULT_LANGUAGE
 ) -> PublicSiteContent | None:
     return db.get(PublicSiteContent, language_code)
+
+
+def load_public_site_content_with_fallback(
+    db: Session, language_code: str, default_language: str = DEFAULT_LANGUAGE
+) -> tuple[PublicSiteContent | None, bool]:
+    content = load_public_site_content(db, language_code)
+    if content is not None:
+        return content, False
+    fallback = load_public_site_content(db, default_language)
+    return fallback, fallback is not None and language_code != default_language
 
 
 def public_site_content_is_complete(content: PublicSiteContent | None) -> bool:
@@ -33,23 +43,25 @@ def save_public_site_content(
     privacy_text: str,
     contact_email: str,
     contact_text: str,
+    validation_language: str | None = None,
 ) -> PublicSiteContent:
     language_code = language_code.strip()
-    imprint_text = _normalize_text(imprint_text)
-    privacy_text = _normalize_text(privacy_text)
+    message_language = normalize_language(validation_language or language_code)
+    imprint_text = _normalize_text(imprint_text, message_language)
+    privacy_text = _normalize_text(privacy_text, message_language)
     contact_email = contact_email.strip()
-    contact_text = _normalize_text(contact_text)
+    contact_text = _normalize_text(contact_text, message_language)
 
     if not _LANGUAGE_PATTERN.fullmatch(language_code):
-        raise ValueError("Der Sprachcode ist ungültig.")
+        raise ValueError(translate(message_language, "error.language"))
     if not 1 <= len(imprint_text) <= 20_000:
-        raise ValueError("Das Impressum muss 1 bis 20.000 Zeichen enthalten.")
+        raise ValueError(translate(message_language, "error.imprint_length"))
     if not 1 <= len(privacy_text) <= 50_000:
-        raise ValueError("Der Datenschutzhinweis muss 1 bis 50.000 Zeichen enthalten.")
+        raise ValueError(translate(message_language, "error.privacy_length"))
     if len(contact_text) > 10_000:
-        raise ValueError("Der Kontakthinweis darf höchstens 10.000 Zeichen enthalten.")
+        raise ValueError(translate(message_language, "error.contact_length"))
     if not _valid_email(contact_email):
-        raise ValueError("Die Kontaktadresse ist ungültig.")
+        raise ValueError(translate(message_language, "error.contact_email"))
 
     content = db.get(PublicSiteContent, language_code)
     if content is None:
@@ -70,10 +82,10 @@ def save_public_site_content(
     return content
 
 
-def _normalize_text(value: str) -> str:
+def _normalize_text(value: str, language: str) -> str:
     normalized = value.replace("\r\n", "\n").replace("\r", "\n").strip()
     if any(ord(character) < 32 and character not in "\n\t" for character in normalized):
-        raise ValueError("Der Text enthält ungültige Steuerzeichen.")
+        raise ValueError(translate(language, "error.control_characters"))
     return normalized
 
 

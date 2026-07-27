@@ -1,12 +1,12 @@
-{% extends "base.html" %}{% block content %}
-<div class="narrow"><span class="eyebrow">Konto einrichten · letzter Schritt</span><h1>E-Mail-Adresse bestätigen</h1>
+{% extends "base.html" %}{% block title %}{{ t("setup_done.title") }}{% endblock %}{% block content %}
+<div class="narrow"><span class="eyebrow">{{ t("setup_done.eyebrow") }}</span><h1>{{ t("setup_done.heading") }}</h1>
 {% if mail_sent %}
-<p>Wir haben Ihnen eine E-Mail gesendet. Öffnen Sie den darin enthaltenen Bestätigungslink, um Ihr Konto zu aktivieren.</p>
+<p>{{ t("setup_done.sent") }}</p>
 {% else %}
-<p class="error">Die Bestätigungs-E-Mail konnte nicht versendet werden.</p>
-<p>In dieser lokalen Testumgebung können Sie mit dem folgenden Link fortfahren:</p>
+<p class="error">{{ t("setup_done.failed") }}</p>
+<p>{{ t("setup_done.local") }}</p>
 <p class="secret"><a href="{{ verify_url }}">{{ verify_url }}</a></p>
 {% endif %}
-<div class="next-step"><h2>Was passiert danach?</h2><p>Nach der Bestätigung ist Ihr Konto aktiv. Anschließend öffnen Sie den zuvor gesicherten Kontoinhaber-Link und melden sich mit Ihrem Passwort an.</p></div>
+<div class="next-step"><h2>{{ t("setup_done.next_heading") }}</h2><p>{{ t("setup_done.next") }}</p></div>
 </div>
 {% endblock %}

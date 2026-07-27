@@ -37,6 +37,7 @@ replace emergency services or official arrangements.
 - Confidential message submission with a review step
 - Server-side recipient selection without exposing names or recipient counts
 - Verified email contact methods
+- German and English user interfaces with one consistent language per account
 - A separate technical administration area
 - Encrypted sensitive data and automatic removal of delivered message content
 
@@ -89,7 +90,8 @@ docker compose version
    ```
 
    The setup asks for the primary public domain, optional additional domains,
-   and technical administrator credentials. It creates all secrets, starts
+   technical administrator credentials, and uses German as the initial
+   fallback language. It creates all secrets, starts
    SilentRelay, initializes the database, and checks the application.
 
 4. Open `https://your-domain.example/admin/login` and sign in.
@@ -97,6 +99,11 @@ docker compose version
 6. Add the deployment's imprint, privacy information, and public contact
    address under public information.
 7. Open the public start page and create the first account.
+
+SilentRelay currently supports German and English. Public pages and the
+technical administration follow the browser language. The account owner
+chooses the account language during creation and can change it later for all
+account pages, QR-code handovers, notifications, and emails.
 
 Caddy obtains and renews HTTPS certificates automatically. Additional domains
 are redirected to the primary domain, which SilentRelay uses for all generated

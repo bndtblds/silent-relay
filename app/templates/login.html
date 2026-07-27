@@ -1,8 +1,8 @@
-{% extends "base.html" %}{% block title %}Kontoverwaltung öffnen – SilentRelay{% endblock %}{% block content %}
-<div class="narrow"><span class="eyebrow">Geschützter Bereich</span><h1>Kontoverwaltung öffnen</h1>
-<p>Der geheime Kontoinhaber-Link wurde erkannt. Geben Sie jetzt Ihr persönliches Passwort ein.</p>
+{% extends "base.html" %}{% block title %}{{ t("login.title") }}{% endblock %}{% block content %}
+<div class="narrow"><span class="eyebrow">{{ t("login.eyebrow") }}</span><h1>{{ t("login.heading") }}</h1>
+<p>{{ t("login.intro") }}</p>
 <form class="form-card" method="post" action="/account/{{ token }}/login">
-<label for="password">Passwort</label><input id="password" type="password" name="password" maxlength="256" autocomplete="current-password" required>
-<button class="button-large" type="submit">Sicher anmelden</button></form>
-<p class="form-hint">Auf einem gemeinsam genutzten Gerät sollten Sie ein privates Browserfenster verwenden.</p></div>
+<label for="password">{{ t("login.password") }}</label><input id="password" type="password" name="password" maxlength="256" autocomplete="current-password" required>
+<button class="button-large" type="submit">{{ t("login.submit") }}</button></form>
+<p class="form-hint">{{ t("login.private") }}</p></div>
 {% endblock %}

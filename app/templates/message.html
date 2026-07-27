@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}<div class="narrow">
 <h1>{{ title }}</h1><p class="lead">{{ message }}</p>
-{% if next_step %}<div class="next-step"><h2>So geht es weiter</h2><p>{{ next_step }}</p></div>{% endif %}
+{% if next_step %}<div class="next-step"><h2>{{ t("common.next") }}</h2><p>{{ next_step }}</p></div>{% endif %}
 </div>
 {% endblock %}

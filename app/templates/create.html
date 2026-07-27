@@ -1,10 +1,12 @@
-{% extends "base.html" %}{% block title %}Konto erstellen – SilentRelay{% endblock %}{% block content %}
+{% extends "base.html" %}{% block title %}{{ t("create.title") }}{% endblock %}{% block content %}
 <div class="narrow">
-  <div class="progress" aria-label="Einrichtung: Schritt 1 von 3"><span class="active">1</span><span>2</span><span>3</span></div>
-  <span class="eyebrow">Schritt 1 von 3</span><h1>Konto erstellen</h1>
-  <p class="lead">Im nächsten Schritt erhalten Sie Ihren persönlichen Kontoinhaber-Link und QR-Code. Damit öffnen Sie später Ihre Kontoverwaltung.</p>
-  <div class="warning"><strong>Keine Wiederherstellung in dieser Version</strong><p>Bewahren Sie Kontoinhaber-Link und Passwort sicher und getrennt auf. Gehen beide verloren, kann das Konto nicht wiederhergestellt werden.</p></div>
-  <form method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="button-large" type="submit">Konto erstellen und Zugang anzeigen</button></form>
-  <p class="form-hint">Es werden in diesem Schritt noch keine persönlichen Kontaktdaten abgefragt.</p>
+  <div class="progress" aria-label="{{ t('create.progress') }}"><span class="active">1</span><span>2</span><span>3</span></div>
+  <span class="eyebrow">{{ t("create.eyebrow") }}</span><h1>{{ t("create.heading") }}</h1>
+  <p class="lead">{{ t("create.lead") }}</p>
+  <form class="form-card" method="post"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="language_code">{{ t("create.language") }}</label><p class="form-hint" id="language-help">{{ t("create.language_hint") }}</p>
+    <select id="language_code" name="language_code" aria-describedby="language-help">{% for code in supported_languages %}<option value="{{ code }}" {% if code == language %}selected{% endif %}>{{ t("language." + code) }}</option>{% endfor %}</select>
+    <button class="button-large" type="submit">{{ t("create.submit") }}</button>
+  </form>
 </div>
 {% endblock %}

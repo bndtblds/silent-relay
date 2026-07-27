@@ -8,10 +8,11 @@ from sqlalchemy.orm import Session
 from app.database import engine
 from app.config import get_settings
 from app.main import app
-from app.models import AuditLog, Partner, PublicSiteContent, SmtpConfiguration
+from app.models import Account, AuditLog, Partner, PublicSiteContent, SmtpConfiguration
 from app.providers.base import DeliveryResult
 from app.routers import admin, web
 from app.security.core import hash_password
+from app.security.core import SessionManager
 
 
 def hidden_value(body: str, name: str) -> str:
@@ -51,6 +52,83 @@ def test_public_html_pages_render():
     assert 'name="csrf"' in create.text
     assert admin.status_code == 200
     assert "Admin-Anmeldung" in admin.text
+
+
+def test_browser_language_controls_public_and_admin_pages():
+    with TestClient(app) as client:
+        index = client.get("/", headers={"Accept-Language": "en-GB,en;q=0.9,de;q=0.5"})
+        create = client.get("/account/create", headers={"Accept-Language": "en"})
+        admin_login = client.get("/admin/login", headers={"Accept-Language": "en"})
+    assert '<html lang="en">' in index.text
+    assert "Reach the right people when it matters" in index.text
+    assert "Account language" in create.text
+    assert "Admin sign-in" in admin_login.text
+
+
+def test_complete_admin_area_uses_browser_language():
+    settings = get_settings()
+    settings.admin_password_hash = hash_password("admin demo password")
+    headers = {"Accept-Language": "en"}
+    with TestClient(app) as client:
+        accounts = client.post(
+            "/admin/login",
+            data={"username": settings.admin_username, "password": "admin demo password"},
+            headers=headers,
+            follow_redirects=True,
+        )
+        assert "Technical account overview" in accounts.text
+        assert "Configure email delivery" in client.get("/admin/system", headers=headers).text
+        public = client.get("/admin/public-content?content_language=en", headers=headers)
+        assert "Imprint, privacy, and contact" in public.text
+        assert 'name="language_code" value="en"' in public.text
+
+
+def test_account_language_is_persisted_and_can_be_changed():
+    settings = get_settings()
+    with Session(engine) as db:
+        account = Account(language_code="de")
+        db.add(account)
+        db.flush()
+        token, csrf = SessionManager(settings).create(db, "account_owner", account.id)
+        account_id = account.id
+        db.commit()
+
+    with TestClient(app) as client:
+        client.cookies.set("sr_account_owner", token)
+        client.cookies.set("sr_account_owner_csrf", csrf)
+        german = client.get("/account/dashboard", headers={"Accept-Language": "en"})
+        assert "Kontoverwaltung" in german.text
+        changed = client.post(
+            "/account/language",
+            data={"csrf": csrf, "language_code": "en"},
+            headers={"Accept-Language": "de"},
+            follow_redirects=True,
+        )
+        assert changed.status_code == 200
+        assert "Account management" in changed.text
+
+    with Session(engine) as db:
+        assert db.get(Account, account_id).language_code == "en"
+
+
+def test_selected_account_language_controls_onboarding():
+    with TestClient(app) as client:
+        create = client.get("/account/create", headers={"Accept-Language": "de"})
+        created = client.post(
+            "/account/create",
+            data={"csrf": hidden_value(create.text, "csrf"), "language_code": "en"},
+        )
+        assert "Save your account-owner access now" in created.text
+        setup_url = html.unescape(
+            re.search(r'href="(http://testserver/account/setup/[^"]+)"', created.text).group(1)
+        )
+        setup = client.get(setup_url.removeprefix("http://testserver"), headers={"Accept-Language": "de"})
+        assert "Secure your account" in setup.text
+        assert '<html lang="en">' in setup.text
+
+    with Session(engine) as db:
+        account = db.scalar(select(Account))
+        assert account.language_code == "en"
 
 
 def test_docs_are_not_exposed():

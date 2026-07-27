@@ -92,6 +92,7 @@ Change these values in `.env`:
 APP_ENV=test
 APP_BASE_URL=http://localhost:8000
 DATABASE_URL=sqlite:///./data/development.db
+DEFAULT_LANGUAGE=de
 HSTS_ENABLED=false
 SECURE_COOKIES=false
 ```
@@ -160,6 +161,8 @@ current setup browser so that the manual account flow can continue.
 ## Project structure
 
 - `app/main.py` creates the FastAPI application and security middleware.
+- `app/i18n.py` contains language negotiation, formatting, and the small
+  German/English translation catalog.
 - `app/routers/` contains public, account-owner, and technical-admin HTTP
   routes.
 - `app/services.py` contains application rules and database operations.
@@ -196,6 +199,15 @@ When changing persisted data:
    ```
 
 5. Add tests for both the new behavior and important boundary cases.
+
+## Languages
+
+German (`de`) and English (`en`) are supported. Public and technical-admin
+requests negotiate `Accept-Language`; account-specific requests always use the
+language stored on the account. Keep secret URLs language-neutral. A new
+language is complete only when all user-facing templates, emails, validation
+messages, status labels, accessibility text, and representative HTTP flows are
+covered.
 
 Never edit an existing production database manually. Do not remove or rewrite
 an already published migration merely to make a local checkout work.
