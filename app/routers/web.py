@@ -528,30 +528,6 @@ def edit_partner(
     return RedirectResponse("/account/dashboard", 303)
 
 
-@router.post("/account/partners/{partner_id}/disable")
-def disable_partner(
-    partner_id: str, request: Request, csrf: str = Form(...), account: Account = Depends(account_owner_account),
-    session: ServerSession = Depends(account_owner_session), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
-):
-    csrf_guard(request, session, settings, csrf)
-    partner = db.scalar(select(Partner).where(Partner.id == partner_id, Partner.account_id == account.id))
-    if not partner:
-        raise HTTPException(404)
-    partner.is_active = False
-    people = list(db.scalars(select(TrustedPerson).where(
-        TrustedPerson.account_id == account.id,
-        TrustedPerson.owner_type == "partner",
-        TrustedPerson.owner_id == partner.id,
-    )))
-    for person in people:
-        person.is_active = False
-        token = db.get(TrustedPersonToken, person.id)
-        if token:
-            token.revoked_at = datetime.utcnow()
-    db.commit()
-    return RedirectResponse("/account/dashboard", 303)
-
-
 @router.post("/account/partners/{partner_id}/delete")
 def delete_partner(
     partner_id: str, request: Request, csrf: str = Form(...), account: Account = Depends(account_owner_account),
@@ -626,23 +602,6 @@ def owned_person(db: Session, account_id: str, person_id: str) -> TrustedPerson 
     return db.scalar(select(TrustedPerson).where(
         TrustedPerson.id == person_id, TrustedPerson.account_id == account_id
     ))
-
-
-@router.post("/account/trusted-persons/{person_id}/disable")
-def disable_person(
-    person_id: str, request: Request, csrf: str = Form(...), account: Account = Depends(account_owner_account),
-    session: ServerSession = Depends(account_owner_session), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
-):
-    csrf_guard(request, session, settings, csrf)
-    person = owned_person(db, account.id, person_id)
-    if not person:
-        raise HTTPException(404)
-    person.is_active = False
-    token = db.get(TrustedPersonToken, person.id)
-    if token:
-        token.revoked_at = datetime.utcnow()
-    db.commit()
-    return RedirectResponse("/account/dashboard", 303)
 
 
 @router.post("/account/trusted-persons/{person_id}/delete")

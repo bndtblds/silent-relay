@@ -8,7 +8,16 @@ from sqlalchemy.orm import Session
 from app.database import engine
 from app.config import get_settings
 from app.main import app
-from app.models import Account, AuditLog, Partner, PublicSiteContent, SmtpConfiguration
+from app.models import (
+    Account,
+    AuditLog,
+    ContactMethod,
+    Partner,
+    PublicSiteContent,
+    SmtpConfiguration,
+    TrustedPerson,
+    TrustedPersonToken,
+)
 from app.providers.base import DeliveryResult
 from app.routers import admin, web
 from app.security.core import hash_password
@@ -249,6 +258,16 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         assert 'aria-label="Persönlichen Zugangslink kopieren"' in token_page.text
         assert "/static/print.js" in token_page.text
         assert "So geht es weiter" in token_page.text
+        dashboard = client.get("/account/dashboard")
+        with Session(engine) as db:
+            trusted_person_ids = list(db.scalars(select(TrustedPerson.id)))
+        assert trusted_person_ids
+        for trusted_person_id in trusted_person_ids:
+            disable_path = f"/account/trusted-persons/{trusted_person_id}/disable"
+            assert disable_path not in dashboard.text
+            assert client.post(
+                disable_path, data={"csrf": csrf}, follow_redirects=False
+            ).status_code == 404
         notify_url = html.unescape(
             re.search(
                 r'<p class="secret" id="personal-access-link">(http://testserver/notify/[^<]+)</p>',
@@ -276,6 +295,39 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         assert "Die vertrauliche Nachricht wurde zur Zustellung angenommen." in success.text
         assert "Sie müssen nichts weiter tun" in success.text
         assert RecordingEmailProvider.messages[-1][0] == "owner@example.org"
+
+        dashboard = client.get("/account/dashboard")
+        partner_disable_path = f"/account/partners/{partner_id}/disable"
+        assert partner_disable_path not in dashboard.text
+        assert client.post(
+            partner_disable_path, data={"csrf": csrf}, follow_redirects=False
+        ).status_code == 404
+        with Session(engine) as db:
+            partner_person_ids = list(db.scalars(select(TrustedPerson.id).where(
+                TrustedPerson.owner_type == "partner",
+                TrustedPerson.owner_id == partner_id,
+            )))
+        assert partner_person_ids
+
+        deleted_partner = client.post(
+            f"/account/partners/{partner_id}/delete",
+            data={"csrf": csrf},
+            follow_redirects=True,
+        )
+        assert deleted_partner.status_code == 200
+        assert "Ausgeschlossener Partner" not in deleted_partner.text
+        with Session(engine) as db:
+            assert db.get(Partner, partner_id) is None
+            assert not list(db.scalars(select(ContactMethod).where(
+                ContactMethod.owner_type == "partner",
+                ContactMethod.owner_id == partner_id,
+            )))
+            assert not list(db.scalars(select(TrustedPerson).where(
+                TrustedPerson.owner_type == "partner",
+                TrustedPerson.owner_id == partner_id,
+            )))
+            for trusted_person_id in partner_person_ids:
+                assert db.get(TrustedPersonToken, trusted_person_id) is None
 
 
 def test_admin_can_configure_and_test_smtp(monkeypatch):
