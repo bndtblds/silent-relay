@@ -6,7 +6,8 @@ from sqlalchemy import select
 
 from app.config import Settings
 from app.database import SessionLocal
-from app.i18n import format_date, translate
+from app.email_tracking import NdrMailboxProcessor, send_tracked_email
+from app.i18n import email_body, format_date, translate
 from app.models import Account, AccountReview, ContactMethod, ReviewReminder
 from app.security.core import FieldCipher, SessionManager
 from app.services import DeliveryService, LifecycleService
@@ -16,6 +17,11 @@ from app.smtp_config import load_email_provider
 def run_jobs(settings: Settings) -> dict[str, int]:
     cipher = FieldCipher(settings.field_encryption_key)
     with SessionLocal() as db:
+        try:
+            ndr_reports = NdrMailboxProcessor(settings, cipher).process(db)
+        except Exception:
+            db.rollback()
+            ndr_reports = 0
         provider = load_email_provider(db, settings, cipher)
         deliveries = DeliveryService(settings, cipher, {"email": provider}).process_due(db)
         now = datetime.utcnow()
@@ -38,14 +44,19 @@ def run_jobs(settings: Settings) -> dict[str, int]:
             language = account.language_code if account else settings.default_language
             all_sent = bool(contacts)
             for contact in contacts:
-                result = provider.send(
+                result = send_tracked_email(
+                    db,
+                    settings,
+                    cipher,
+                    provider,
                     cipher.decrypt(contact.encrypted_value),
                     translate(language, "email.review_subject"),
-                    translate(
+                    email_body(
                         language,
                         "email.review_body",
                         due=format_date(review.review_due_at, language),
                     ),
+                    contact_method_id=contact.id,
                 )
                 all_sent = all_sent and result.successful
             if all_sent:
@@ -55,4 +66,9 @@ def run_jobs(settings: Settings) -> dict[str, int]:
         LifecycleService(settings).run(db, now)
         sessions = SessionManager(settings).purge_expired(db)
         db.commit()
-    return {"deliveries": deliveries, "reminders": reminders, "sessions": sessions}
+    return {
+        "ndr_reports": ndr_reports,
+        "deliveries": deliveries,
+        "reminders": reminders,
+        "sessions": sessions,
+    }

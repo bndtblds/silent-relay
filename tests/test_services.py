@@ -22,7 +22,7 @@ class SuccessfulProvider:
         self.recipients = []
         self.messages = []
 
-    def send(self, recipient, subject, body):
+    def send(self, recipient, subject, body, *, envelope_token=None):
         self.recipients.append(recipient)
         self.messages.append((recipient, subject, body))
         return DeliveryResult(True, message_id="test-id")
@@ -31,7 +31,7 @@ class SuccessfulProvider:
 class TemporaryFailureProvider:
     channel = "email"
 
-    def send(self, recipient, subject, body):
+    def send(self, recipient, subject, body, *, envelope_token=None):
         return DeliveryResult(False, error_class="temporary_smtp_error")
 
 
@@ -168,6 +168,9 @@ def test_delivery_email_uses_account_language(db, settings, cipher):
     DeliveryService(settings, cipher, {"email": provider}).process_due(db)
     assert provider.messages[0][1] == "Confidential notification"
     assert "A trusted person submitted" in provider.messages[0][2]
+    assert "Replies are not read and are deleted automatically" in (
+        provider.messages[0][2]
+    )
     db.refresh(notification)
     assert notification.encrypted_message_payload is None
 

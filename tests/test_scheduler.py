@@ -16,7 +16,7 @@ class RecordingProvider:
     def __init__(self, settings):
         pass
 
-    def send(self, recipient, subject, body):
+    def send(self, recipient, subject, body, *, envelope_token=None):
         self.sent.append((recipient, subject))
         return DeliveryResult(True)
 

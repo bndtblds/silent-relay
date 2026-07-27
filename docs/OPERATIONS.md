@@ -124,16 +124,61 @@ domains redirect to the primary domain.
 3. Enter the SMTP server details.
 4. Test the SMTP connection.
 5. Send a test email.
-6. Open **Public information** in the administration area.
-7. Add the operator's reviewed imprint, privacy information, and public contact
+6. If the sender address is a dedicated technical mailbox, configure automatic
+   delivery-failure detection as described below.
+7. Open **Public information** in the administration area.
+8. Add the operator's reviewed imprint, privacy information, and public contact
    address for German and English. If one version is missing, visitors see the
    configured fallback language together with a clear notice.
-8. Open the public imprint, privacy, and contact pages from the footer and
+9. Open the public imprint, privacy, and contact pages from the footer and
    verify their content.
-9. Open the public start page and create the first SilentRelay account.
+10. Open the public start page and create the first SilentRelay account.
 
 SMTP is deliberately checked separately. A temporary mail-server failure does
 not take the SilentRelay website offline.
+
+### Detect permanent email delivery failures
+
+This optional function requires the SMTP sender address to be its own technical
+mailbox. The mailbox must support:
+
+- plus addressing, for example
+  `notifications+random-code@example.org`; and
+- encrypted IMAP access, normally on port `993`.
+
+Because SilentRelay appends a secure correlation code, the part of the sender
+address before `@` may contain at most 20 bytes. A short address such as
+`notifications@example.org` is suitable.
+
+Mailcow supports these features, but Mailcow is not required. Ask the provider
+of the existing mailbox whether plus addressing and IMAP are available.
+
+Open **Email delivery** in the administration area and configure SMTP first.
+The sender address should be the address of this technical mailbox. In
+**Detect delivery failures automatically**, enter its IMAP server, port,
+username, and password. To acknowledge the deletion rule, type the exact sender
+address shown by SilentRelay.
+
+Once activated, SilentRelay fully manages this mailbox and permanently deletes
+every incoming message after inspection. This includes processed delivery
+reports, ordinary replies, spam, and malformed messages. Never use the mailbox
+for support, personal correspondence, or another purpose.
+
+Use **Test IMAP without deleting mail** after saving. This test opens only the
+configured inbox in read-only mode. It does not read or delete messages.
+Thereafter the scheduler regularly processes and empties that inbox.
+
+A permanent, correlated delivery report makes the affected contact method
+unconfirmed, so the account owner sees a plain-language warning and must verify
+the address again. A delayed report does not trigger another application send
+while the receiving mail server is still retrying. No delivery report is not
+proof that a message arrived, so regular account and contact confirmation
+remains necessary.
+
+All SilentRelay emails state that they are automatic and that replies are not
+read and are deleted. Disable incoming processing before using the mailbox
+manually, and remember that messages already deleted by SilentRelay cannot be
+recovered.
 
 SilentRelay safely displays the operator text but does not generate universal
 legal wording. The operator remains responsible for the completeness and

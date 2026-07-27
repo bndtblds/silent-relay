@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.database import get_db
+from app.email_tracking import send_tracked_email
 from app.i18n import (
-    LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, format_datetime,
-    normalize_language, translate,
+    LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, email_body,
+    format_datetime, normalize_language, translate,
 )
 from app.models import (
     Account, AccountStatus, Delivery, DeliveryStatus, Notification, SmtpConfiguration,
@@ -21,7 +22,10 @@ from app.public_site import (
 )
 from app.security.core import FieldCipher, SessionManager, verify_password
 from app.services import audit
-from app.smtp_config import load_email_config, load_email_provider, save_email_config, test_smtp_connection
+from app.smtp_config import (
+    disable_ndr_config, load_email_config, load_email_provider, load_ndr_config,
+    save_email_config, save_ndr_config, test_imap_connection, test_smtp_connection,
+)
 
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory="app/templates")
@@ -137,6 +141,8 @@ def system_configuration(request: Request, db: Session = Depends(get_db), settin
     admin_session(request, db, settings)
     config = load_email_config(db, settings, FieldCipher(settings.field_encryption_key))
     stored = db.get(SmtpConfiguration, "default")
+    cipher = FieldCipher(settings.field_encryption_key)
+    ndr_config = load_ndr_config(db, settings, cipher)
     language = browser_language(request, settings.default_language)
     return templates.TemplateResponse(
         request, "adminsystem_en.html" if language == "en" else "adminsystem.html",
@@ -145,6 +151,17 @@ def system_configuration(request: Request, db: Session = Depends(get_db), settin
             config=config,
             password_configured=bool((stored and stored.encrypted_password) or settings.smtp_password),
             stored_in_database=bool(stored),
+            ndr_enabled=bool(ndr_config),
+            imap_host=(
+                cipher.decrypt(stored.encrypted_imap_host)
+                if stored and stored.encrypted_imap_host else ""
+            ),
+            imap_port=(stored.imap_port if stored and stored.imap_port else 993),
+            imap_username=(
+                cipher.decrypt(stored.encrypted_imap_username)
+                if stored and stored.encrypted_imap_username else ""
+            ),
+            imap_password_configured=bool(stored and stored.encrypted_imap_password),
             csrf=request.cookies.get("sr_admin_csrf", ""),
             result=request.query_params.get("result"),
         )
@@ -271,6 +288,71 @@ def test_connection(
     return RedirectResponse("/admin/system?result=connection_ok", 303)
 
 
+@router.post("/system/ndr")
+def update_ndr(
+    request: Request,
+    host: str = Form(...),
+    port: int = Form(...),
+    username: str = Form(...),
+    password: str = Form(""),
+    acknowledged_address: str = Form(...),
+    csrf: str = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    verify_admin_csrf(request, csrf, db, settings)
+    try:
+        save_ndr_config(
+            db,
+            settings,
+            FieldCipher(settings.field_encryption_key),
+            host=host,
+            port=port,
+            username=username,
+            password=password or None,
+            acknowledged_address=acknowledged_address,
+        )
+    except ValueError:
+        return RedirectResponse("/admin/system?result=ndr_invalid", 303)
+    audit(db, "ndr_configuration_updated")
+    db.commit()
+    return RedirectResponse("/admin/system?result=ndr_saved", 303)
+
+
+@router.post("/system/ndr/disable")
+def disable_ndr(
+    request: Request,
+    csrf: str = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    verify_admin_csrf(request, csrf, db, settings)
+    disable_ndr_config(db)
+    audit(db, "ndr_configuration_disabled")
+    db.commit()
+    return RedirectResponse("/admin/system?result=ndr_disabled", 303)
+
+
+@router.post("/system/ndr/test-connection")
+def test_ndr_connection(
+    request: Request,
+    csrf: str = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    verify_admin_csrf(request, csrf, db, settings)
+    config = load_ndr_config(
+        db, settings, FieldCipher(settings.field_encryption_key)
+    )
+    if not config:
+        return RedirectResponse("/admin/system?result=ndr_connection_failed", 303)
+    try:
+        test_imap_connection(config)
+    except Exception:
+        return RedirectResponse("/admin/system?result=ndr_connection_failed", 303)
+    return RedirectResponse("/admin/system?result=ndr_connection_ok", 303)
+
+
 @router.post("/system/smtp/test-email")
 def test_email(
     request: Request, recipient: str = Form(...), csrf: str = Form(...),
@@ -279,11 +361,15 @@ def test_email(
     verify_admin_csrf(request, csrf, db, settings)
     if "@" not in recipient or len(recipient) > 320:
         return RedirectResponse("/admin/system?result=invalid_recipient", 303)
-    result = load_email_provider(db, settings, FieldCipher(settings.field_encryption_key)).send(
+    language = browser_language(request, settings.default_language)
+    cipher = FieldCipher(settings.field_encryption_key)
+    result = send_tracked_email(
+        db, settings, cipher, load_email_provider(db, settings, cipher),
         recipient.strip(),
-        translate(browser_language(request, settings.default_language), "email.test_subject"),
-        translate(browser_language(request, settings.default_language), "email.test_body"),
+        translate(language, "email.test_subject"),
+        email_body(language, "email.test_body"),
     )
+    db.commit()
     return RedirectResponse(
         f"/admin/system?result={'email_ok' if result.successful else 'email_failed'}", 303
     )

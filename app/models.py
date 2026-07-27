@@ -100,6 +100,8 @@ class ContactMethod(Base):
     verification_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     verification_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    permanent_failure_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_permanent_failure_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     __table_args__ = (
@@ -163,6 +165,23 @@ class Delivery(Base):
     __table_args__ = (UniqueConstraint("notification_id", "contact_method_id"),)
 
 
+class EmailDeliveryTracking(Base):
+    __tablename__ = "email_delivery_tracking"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    delivery_id: Mapped[str | None] = mapped_column(
+        ForeignKey("deliveries.id", ondelete="SET NULL"), index=True
+    )
+    contact_method_id: Mapped[str | None] = mapped_column(
+        ForeignKey("contact_methods.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    last_reported_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    result: Mapped[str] = mapped_column(String(16), default="pending")
+    status_code: Mapped[str | None] = mapped_column(String(32))
+
+
 class AccountReview(Base):
     __tablename__ = "account_reviews"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid7_str)
@@ -222,6 +241,12 @@ class SmtpConfiguration(Base):
     starttls: Mapped[bool] = mapped_column(Boolean, default=True)
     encrypted_from_address: Mapped[bytes] = mapped_column(LargeBinary)
     encrypted_from_name: Mapped[bytes] = mapped_column(LargeBinary)
+    ndr_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    encrypted_imap_host: Mapped[bytes | None] = mapped_column(LargeBinary)
+    imap_port: Mapped[int | None] = mapped_column(Integer)
+    encrypted_imap_username: Mapped[bytes | None] = mapped_column(LargeBinary)
+    encrypted_imap_password: Mapped[bytes | None] = mapped_column(LargeBinary)
+    ndr_acknowledged_address_fingerprint: Mapped[str | None] = mapped_column(String(64))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 

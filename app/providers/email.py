@@ -39,7 +39,14 @@ class EmailNotificationProvider:
     def __init__(self, settings: Settings, config: EmailProviderConfig | None = None):
         self.config = config or EmailProviderConfig.from_settings(settings)
 
-    def send(self, recipient: str, subject: str, body: str) -> DeliveryResult:
+    def send(
+        self,
+        recipient: str,
+        subject: str,
+        body: str,
+        *,
+        envelope_token: str | None = None,
+    ) -> DeliveryResult:
         message = EmailMessage()
         message["From"] = formataddr((self.config.from_name, self.config.from_address))
         message["To"] = recipient
@@ -52,9 +59,22 @@ class EmailNotificationProvider:
                     smtp.starttls(context=ssl.create_default_context())
                 if self.config.username:
                     smtp.login(self.config.username, self.config.password)
-                smtp.send_message(message)
+                smtp.send_message(
+                    message,
+                    from_addr=_envelope_sender(self.config.from_address, envelope_token),
+                    to_addrs=[recipient],
+                )
             return DeliveryResult(True, message_id=message["Message-ID"])
         except smtplib.SMTPRecipientsRefused:
             return DeliveryResult(False, permanent_failure=True, error_class="recipient_rejected")
         except (smtplib.SMTPException, OSError):
             return DeliveryResult(False, error_class="temporary_smtp_error")
+
+
+def _envelope_sender(from_address: str, token: str | None) -> str:
+    if not token:
+        return from_address
+    local, separator, domain = from_address.partition("@")
+    if not separator or not local or not domain:
+        return from_address
+    return f"{local}+{token}@{domain}"

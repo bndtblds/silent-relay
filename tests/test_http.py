@@ -27,7 +27,14 @@ class RecordingEmailProvider:
     def __init__(self, settings):
         pass
 
-    def send(self, recipient: str, subject: str, body: str) -> DeliveryResult:
+    def send(
+        self,
+        recipient: str,
+        subject: str,
+        body: str,
+        *,
+        envelope_token: str | None = None,
+    ) -> DeliveryResult:
         self.messages.append((recipient, subject, body))
         return DeliveryResult(True, message_id="test-message")
 
@@ -175,7 +182,10 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
             "email": "owner@example.org",
         })
         assert setup_done.status_code == 200
-        verification_url = RecordingEmailProvider.messages[-1][2].splitlines()[-1]
+        verification_url = next(
+            line for line in RecordingEmailProvider.messages[-1][2].splitlines()
+            if "/verify-contact/" in line
+        )
         verified = client.get(verification_url.removeprefix("http://testserver"))
         assert verified.status_code == 200
         assert "Konto ist jetzt aktiv" in verified.text
@@ -216,7 +226,10 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
             follow_redirects=True,
         )
         assert partner_contact.status_code == 200
-        partner_verification_url = RecordingEmailProvider.messages[-1][2].splitlines()[-1]
+        partner_verification_url = next(
+            line for line in RecordingEmailProvider.messages[-1][2].splitlines()
+            if "/verify-contact/" in line
+        )
         assert client.get(partner_verification_url.removeprefix("http://testserver")).status_code == 200
 
         owner_token_page = client.post(
@@ -270,6 +283,7 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
     settings.admin_password_hash = hash_password("admin demo password")
     provider = RecordingEmailProvider(None)
     monkeypatch.setattr(admin, "test_smtp_connection", lambda config: None)
+    monkeypatch.setattr(admin, "test_imap_connection", lambda config: 0)
     monkeypatch.setattr(admin, "load_email_provider", lambda db, settings, cipher: provider)
 
     with TestClient(app) as client:
@@ -298,6 +312,28 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
         assert saved.status_code == 200
         assert "sicher gespeichert" in saved.text
         assert "secret-password" not in saved.text
+        assert "vollständig von SilentRelay verwaltet" in saved.text
+
+        ndr = client.post(
+            "/admin/system/ndr",
+            data={
+                "csrf": csrf,
+                "host": "imap.example.org",
+                "port": "993",
+                "username": "relay@example.org",
+                "password": "imap-secret",
+                "acknowledged_address": "relay@example.org",
+            },
+            follow_redirects=True,
+        )
+        assert "Verarbeitung von Zustellfehlern wurde aktiviert" in ndr.text
+        assert "IMAP-Verbindung ohne Löschung testen" in ndr.text
+        ndr_connection = client.post(
+            "/admin/system/ndr/test-connection",
+            data={"csrf": csrf},
+            follow_redirects=True,
+        )
+        assert "keine Nachrichten gelesen oder gelöscht" in ndr_connection.text
 
         connection = client.post(
             "/admin/system/smtp/test-connection", data={"csrf": csrf},
@@ -311,6 +347,9 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
         )
         assert "Test-E-Mail wurde vom SMTP-Server angenommen" in email.text
         assert provider.messages[-1][0] == "test@example.org"
+        assert "Antworten werden nicht gelesen und automatisch gelöscht" in (
+            provider.messages[-1][2]
+        )
         logout = client.post(
             "/admin/logout", data={"csrf": csrf}, follow_redirects=True,
         )

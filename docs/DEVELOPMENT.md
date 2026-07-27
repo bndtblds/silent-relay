@@ -171,6 +171,8 @@ current setup browser so that the manual account flow can continue.
 - `app/models.py` contains the SQLAlchemy database model.
 - `app/providers/` contains the notification-provider interface and SMTP
   implementation.
+- `app/email_tracking.py` creates privacy-preserving envelope correlation and
+  processes standards-compliant delivery-status reports over IMAP.
 - `app/scheduler/` runs delivery, review, lifecycle, and cleanup jobs.
 - `app/templates/` and `app/static/` contain the server-rendered user
   interface.
@@ -271,6 +273,8 @@ preserve these rules:
 
 - never log message text, contact details, passwords, cookies, or clear access
   tokens;
+- never store or log inbound email bodies, attachments, returned messages, or
+  addresses found in delivery reports;
 - never expose recipient identities or recipient counts to a trusted person;
 - keep sensitive database fields encrypted;
 - hash authentication tokens instead of storing them in clear text;

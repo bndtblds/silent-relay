@@ -15,4 +15,11 @@ class DeliveryResult:
 class NotificationProvider(Protocol):
     channel: str
 
-    def send(self, recipient: str, subject: str, body: str) -> DeliveryResult: ...
+    def send(
+        self,
+        recipient: str,
+        subject: str,
+        body: str,
+        *,
+        envelope_token: str | None = None,
+    ) -> DeliveryResult: ...

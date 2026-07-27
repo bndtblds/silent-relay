@@ -48,6 +48,13 @@ def translate(language: str, key: str, **values: object) -> str:
     return text.format(**values)
 
 
+def email_body(language: str, key: str, **values: object) -> str:
+    return (
+        f"{translate(language, key, **values)}\n\n---\n"
+        f"{translate(language, 'email.automatic_notice')}"
+    )
+
+
 def format_datetime(value: datetime | None, language: str) -> str:
     if value is None:
         return ""
@@ -137,6 +144,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "email.review_body": "Bitte prüfen und bestätigen Sie Ihr SilentRelay-Konto. Fälligkeit: {due}",
         "email.test_subject": "SilentRelay: Test-E-Mail",
         "email.test_body": "Diese Test-E-Mail bestätigt, dass der SMTP-Versand von SilentRelay funktioniert.",
+        "email.automatic_notice": "Diese Nachricht wurde automatisch von SilentRelay versendet. Antworten werden nicht gelesen und automatisch gelöscht.",
         "verify.title": "Kontakt bestätigt",
         "verify.message": "Das Konto ist jetzt aktiv.",
         "verify.next": "Öffnen Sie jetzt Ihren zuvor gespeicherten Kontoinhaber-Link oder scannen Sie den Kontoinhaber-QR-Code, um sich anzumelden.",
@@ -285,6 +293,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "email.review_body": "Please review and confirm your SilentRelay account. Due date: {due}",
         "email.test_subject": "SilentRelay: Test email",
         "email.test_body": "This test email confirms that SilentRelay can send email through the configured SMTP server.",
+        "email.automatic_notice": "This message was sent automatically by SilentRelay. Replies are not read and are deleted automatically.",
         "verify.title": "Contact confirmed",
         "verify.message": "The account is now active.",
         "verify.next": "Open the account-owner link you saved earlier or scan the account-owner QR code to sign in.",

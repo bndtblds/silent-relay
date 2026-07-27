@@ -9,7 +9,8 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.i18n import normalize_language, translate
+from app.email_tracking import send_tracked_email
+from app.i18n import email_body, normalize_language, translate
 from app.models import (
     Account, AccountOwnerCredential, AccountReview, AccountStatus, AuditLog, ContactMethod,
     Delivery, DeliveryStatus, Notification, NotificationStatus, Partner, ReviewReminder,
@@ -85,6 +86,8 @@ class AccountService:
             return None
         now = datetime.utcnow()
         contact.is_verified, contact.verified_at = True, now
+        contact.permanent_failure_count = 0
+        contact.last_permanent_failure_at = None
         contact.verification_token_hash, contact.verification_expires_at = None, None
         account = db.get(Account, contact.account_id)
         if account and account.status == AccountStatus.pending_verification:
@@ -358,14 +361,20 @@ class DeliveryService:
                 else:
                     account = db.get(Account, notification.account_id)
                     language = account.language_code if account else self.settings.default_language
-                    result = provider.send(
+                    result = send_tracked_email(
+                        db,
+                        self.settings,
+                        self.cipher,
+                        provider,
                         self.cipher.decrypt(contact.encrypted_value),
                         translate(language, "email.notification_subject"),
-                        translate(
+                        email_body(
                             language,
                             "email.notification_body",
                             message=self.cipher.decrypt(notification.encrypted_message_payload),
                         ),
+                        contact_method_id=contact.id,
+                        delivery_id=delivery.id,
                     )
                     if result.successful:
                         delivery.status, delivery.delivered_at = DeliveryStatus.delivered, now

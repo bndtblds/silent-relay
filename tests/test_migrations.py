@@ -34,9 +34,15 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
         account_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(accounts)")
         }
+        contact_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(contact_methods)")
+        }
     assert "public_site_contents" in tables
+    assert "email_delivery_tracking" in tables
     assert "language_code" in account_columns
-    assert revision == "0003"
+    assert "permanent_failure_count" in contact_columns
+    assert revision == "0004"
 
 
 def test_existing_database_upgrades_without_losing_data(tmp_path, monkeypatch):
@@ -71,6 +77,18 @@ def test_existing_database_upgrades_without_losing_data(tmp_path, monkeypatch):
         account_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(accounts)")
         }
+        contact_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(contact_methods)")
+        }
+        tracking_table = connection.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name = 'email_delivery_tracking'
+            """
+        ).fetchone()
     assert event == ("existing",)
     assert public_table == ("public_site_contents",)
     assert "language_code" in account_columns
+    assert "permanent_failure_count" in contact_columns
+    assert tracking_table == ("email_delivery_tracking",)

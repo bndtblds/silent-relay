@@ -8,6 +8,11 @@
 {% if result == "email_ok" %}<p class="success-message">Die Test-E-Mail wurde vom SMTP-Server angenommen.</p>{% endif %}
 {% if result == "email_failed" %}<p class="error">Die Test-E-Mail konnte nicht versendet werden.</p>{% endif %}
 {% if result == "invalid_recipient" %}<p class="error">Die Empfängeradresse ist ungültig.</p>{% endif %}
+{% if result == "ndr_saved" %}<p class="success-message">Die automatische Verarbeitung von Zustellfehlern wurde aktiviert.</p>{% endif %}
+{% if result == "ndr_invalid" %}<p class="error">Bitte prüfen Sie IMAP-Server, Zugangsdaten und die bestätigte Postfachadresse.</p>{% endif %}
+{% if result == "ndr_disabled" %}<p class="success-message">Die automatische Verarbeitung eingehender Nachrichten wurde deaktiviert.</p>{% endif %}
+{% if result == "ndr_connection_ok" %}<p class="success-message">Die verschlüsselte IMAP-Verbindung zum technischen Postfach funktioniert. Es wurden keine Nachrichten gelesen oder gelöscht.</p>{% endif %}
+{% if result == "ndr_connection_failed" %}<p class="error">Die verschlüsselte IMAP-Verbindung oder Anmeldung ist fehlgeschlagen.</p>{% endif %}
 
 <section class="panel"><h2>Server und Absender</h2>
   <p>Die Daten erhalten Sie von Ihrem E-Mail-Anbieter oder Serveradministrator. Sie gelten für alle SilentRelay-Konten. Zugangsdaten werden verschlüsselt gespeichert und das Passwort wird niemals erneut angezeigt.</p>
@@ -23,6 +28,33 @@
     <label>Absendername<input name="from_name" value="{{ config.from_name }}" required></label>
     <button>Einstellungen speichern</button>
   </form>
+</section>
+
+<section class="panel"><h2>Zustellfehler automatisch erkennen</h2>
+  <p>SilentRelay kann Rückmeldungen des Mailservers auswerten und dadurch endgültig unzustellbare Kontaktwege erkennen. Dafür wird das Postfach der Absenderadresse über verschlüsseltes IMAP abgerufen.</p>
+  <p><span class="badge {{ 'success' if ndr_enabled else 'pending' }}">{{ "Aktiv" if ndr_enabled else "Nicht aktiv" }}</span></p>
+  <div class="warning">
+    <strong>Dieses Postfach wird vollständig von SilentRelay verwaltet.</strong>
+    <p>Sobald diese Funktion aktiv ist, löscht SilentRelay sämtliche eingehenden Nachrichten dauerhaft – einschließlich Antworten, Spam, unlesbarer Nachrichten und bereits verarbeiteter Zustellberichte. Verwenden Sie die Absenderadresse <strong>{{ config.from_address }}</strong> nicht für Support, persönliche Korrespondenz oder andere Zwecke.</p>
+  </div>
+  <form class="compact-form" method="post" action="/admin/system/ndr">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>IMAP-Server<input name="host" value="{{ imap_host }}" autocomplete="off" required></label>
+    <label>IMAP-Port<input type="number" name="port" min="1" max="65535" value="{{ imap_port }}" required></label>
+    <label>IMAP-Benutzername<input name="username" value="{{ imap_username }}" autocomplete="off" required></label>
+    <label>IMAP-Passwort<input type="password" name="password" autocomplete="new-password" placeholder="{{ 'Unverändert lassen' if imap_password_configured else 'IMAP-Passwort eingeben' }}"></label>
+    <label>Zur Bestätigung die technische Absenderadresse eingeben
+      <span class="form-hint">Geben Sie exakt <strong>{{ config.from_address }}</strong> ein. Damit bestätigen Sie, dass SilentRelay alle eingehenden Nachrichten dieses Postfachs dauerhaft löschen darf.</span>
+      <input type="email" name="acknowledged_address" autocomplete="off" required>
+    </label>
+    <button>Verarbeitung aktivieren und speichern</button>
+  </form>
+  {% if ndr_enabled %}
+  <div class="actions">
+    <form method="post" action="/admin/system/ndr/test-connection"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">IMAP-Verbindung ohne Löschung testen</button></form>
+    <form method="post" action="/admin/system/ndr/disable"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Automatische Verarbeitung deaktivieren</button></form>
+  </div>
+  {% endif %}
 </section>
 
 <section class="panel"><h2>Verbindung prüfen</h2><p>Prüft Verbindung, STARTTLS und Anmeldung, ohne eine E-Mail zu senden.</p>

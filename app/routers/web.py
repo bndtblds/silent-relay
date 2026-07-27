@@ -14,13 +14,14 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.database import get_db
 from app.dependencies import account_owner_account, account_owner_session
+from app.email_tracking import send_tracked_email
 from app.i18n import (
-    LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, format_date, normalize_language,
-    translate,
+    LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, email_body, format_date,
+    normalize_language, translate,
 )
 from app.models import (
-    Account, AccountOwnerCredential, AccountStatus, ContactMethod, Delivery, DeliveryStatus,
-    Partner, ServerSession, TrustedPerson, TrustedPersonToken,
+    Account, AccountOwnerCredential, AccountStatus, ContactMethod, Partner, ServerSession,
+    TrustedPerson, TrustedPersonToken,
 )
 from app.providers.email import EmailNotificationProvider
 from app.public_markdown import render_public_markdown
@@ -215,16 +216,27 @@ def setup_account(
         )
     verify_url = f"{settings.app_base_url}/verify-contact/{verification}"
     provider = load_email_provider(db, settings, FieldCipher(settings.field_encryption_key))
-    result = provider.send(
+    contact = db.scalar(select(ContactMethod).where(
+        ContactMethod.account_id == account.id,
+        ContactMethod.verification_token_hash
+        == keyed_hash(verification, settings.token_hmac_key),
+    ))
+    result = send_tracked_email(
+        db,
+        settings,
+        FieldCipher(settings.field_encryption_key),
+        provider,
         email.strip(),
         translate(language, "email.verify_subject"),
-        translate(
+        email_body(
             language,
             "email.verify_body",
             url=verify_url,
             privacy_url=f"{settings.app_base_url}/privacy",
         ),
+        contact_method_id=contact.id if contact else None,
     )
+    db.commit()
     return templates.TemplateResponse(
         request,
         "setup_done.html",
@@ -296,7 +308,13 @@ def dashboard(
             ContactMethod.account_id == account.id, ContactMethod.owner_type == "partner", ContactMethod.owner_id == partner.id
         )))
         partner_rows.append({"id": partner.id, "name": cipher.decrypt(partner.encrypted_name), "active": partner.is_active, "contacts": [
-            {"id": c.id, "value": cipher.decrypt(c.encrypted_value), "verified": c.is_verified} for c in partner_contacts
+            {
+                "id": c.id,
+                "value": cipher.decrypt(c.encrypted_value),
+                "verified": c.is_verified,
+                "delivery_failed": bool(c.last_permanent_failure_at),
+            }
+            for c in partner_contacts
         ], "people": [
             {
                 "id": p.id,
@@ -306,8 +324,10 @@ def dashboard(
             }
             for p in people
         ]})
-    failures = db.scalar(select(func.count()).select_from(Delivery).join(ContactMethod).where(
-        ContactMethod.account_id == account.id, Delivery.status == DeliveryStatus.permanent_failure
+    failures = db.scalar(select(func.count()).select_from(ContactMethod).where(
+        ContactMethod.account_id == account.id,
+        ContactMethod.last_permanent_failure_at.is_not(None),
+        ContactMethod.is_verified.is_(False),
     ))
     trusted_person_count = len(owner_people) + sum(len(partner["people"]) for partner in partner_rows)
     verified_partner_contact_count = sum(
@@ -322,7 +342,15 @@ def dashboard(
             if not account.next_review_due_at
             else format_date(account.next_review_due_at, account.language_code)
         ),
-        contacts=[{"id": c.id, "value": cipher.decrypt(c.encrypted_value), "verified": c.is_verified} for c in contacts],
+        contacts=[
+            {
+                "id": c.id,
+                "value": cipher.decrypt(c.encrypted_value),
+                "verified": c.is_verified,
+                "delivery_failed": bool(c.last_permanent_failure_at),
+            }
+            for c in contacts
+        ],
         partners=partner_rows,
         owner_people=[
             {
@@ -407,14 +435,22 @@ def add_contact(
         db, account.id, owner_type, target_id, value
     )
     verify_url = f"{settings.app_base_url}/verify-contact/{token}"
-    load_email_provider(db, settings, FieldCipher(settings.field_encryption_key)).send(
+    contact = db.scalar(select(ContactMethod).where(
+        ContactMethod.account_id == account.id,
+        ContactMethod.verification_token_hash == keyed_hash(token, settings.token_hmac_key),
+    ))
+    cipher = FieldCipher(settings.field_encryption_key)
+    send_tracked_email(
+        db, settings, cipher, load_email_provider(db, settings, cipher),
         value,
         translate(account.language_code, "email.verify_subject"),
-        translate(
+        email_body(
             account.language_code, "email.verify_body", url=verify_url,
             privacy_url=f"{settings.app_base_url}/privacy",
         ),
+        contact_method_id=contact.id if contact else None,
     )
+    db.commit()
     return RedirectResponse("/account/dashboard", 303)
 
 
@@ -434,14 +470,18 @@ def resend_contact_verification(
     db.commit()
     value = FieldCipher(settings.field_encryption_key).decrypt(contact.encrypted_value)
     verify_url = f"{settings.app_base_url}/verify-contact/{token}"
-    load_email_provider(db, settings, FieldCipher(settings.field_encryption_key)).send(
+    cipher = FieldCipher(settings.field_encryption_key)
+    send_tracked_email(
+        db, settings, cipher, load_email_provider(db, settings, cipher),
         value,
         translate(account.language_code, "email.verify_subject"),
-        translate(
+        email_body(
             account.language_code, "email.verify_body", url=verify_url,
             privacy_url=f"{settings.app_base_url}/privacy",
         ),
+        contact_method_id=contact.id,
     )
+    db.commit()
     return RedirectResponse("/account/dashboard", 303)
 
 
