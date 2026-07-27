@@ -95,8 +95,8 @@ The setup asks for:
 - the technical administrator's username; and
 - the technical administrator's password.
 
-German is the default fallback language. To use English when a browser does not
-request a supported language, set `DEFAULT_LANGUAGE=en` in `.env`. Supported
+English is the default fallback language. To use German when a browser does not
+request a supported language, set `DEFAULT_LANGUAGE=de` in `.env`. Supported
 values are `de` and `en`.
 
 It then creates the private configuration, starts SilentRelay, initializes the

@@ -92,7 +92,7 @@ Change these values in `.env`:
 APP_ENV=test
 APP_BASE_URL=http://localhost:8000
 DATABASE_URL=sqlite:///./data/development.db
-DEFAULT_LANGUAGE=de
+DEFAULT_LANGUAGE=en
 HSTS_ENABLED=false
 SECURE_COOKIES=false
 ```

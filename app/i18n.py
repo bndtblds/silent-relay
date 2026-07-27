@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 from fastapi import Request
 
-DEFAULT_LANGUAGE = "de"
+DEFAULT_LANGUAGE = "en"
 SUPPORTED_LANGUAGES = ("de", "en")
 LANGUAGE_LABELS = {
     "de": "Deutsch",
@@ -197,7 +197,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "public.imprint_missing": "Das Impressum wurde vom Betreiber noch nicht hinterlegt.",
         "public.privacy_missing": "Die Datenschutzhinweise wurden vom Betreiber noch nicht hinterlegt.",
         "public.contact_missing": "Die Kontaktadresse wurde vom Betreiber noch nicht hinterlegt.",
-        "public.fallback": "Diese Angaben sind derzeit nur auf Deutsch verfügbar.",
+        "public.fallback": "Diese Angaben werden ersatzweise in einer anderen verfügbaren Sprache angezeigt.",
         "public.email": "E-Mail:",
         "status.pending_verification": "Bestätigung ausstehend",
         "status.active": "Aktiv",
@@ -346,7 +346,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "public.imprint_missing": "The operator has not provided an imprint yet.",
         "public.privacy_missing": "The operator has not provided privacy information yet.",
         "public.contact_missing": "The operator has not provided a contact address yet.",
-        "public.fallback": "This information is currently available in German only.",
+        "public.fallback": "This information is being shown in another available language.",
         "public.email": "Email:",
         "status.pending_verification": "Confirmation pending",
         "status.active": "Active",

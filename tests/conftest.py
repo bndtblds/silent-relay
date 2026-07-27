@@ -15,6 +15,7 @@ os.environ.setdefault("CSRF_SECRET", "csrf-secret-that-is-at-least-thirty-two")
 os.environ.setdefault("ADMIN_PASSWORD_HASH", "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQxMjM0NTY3OA$g0mYyNn5iO1Hc4gYz0j/IFakeHashNotUsed")
 os.environ.setdefault("SECURE_COOKIES", "false")
 os.environ.setdefault("HSTS_ENABLED", "false")
+os.environ.setdefault("DEFAULT_LANGUAGE", "de")
 
 import pytest
 from sqlalchemy import create_engine

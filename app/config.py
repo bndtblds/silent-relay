@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     smtp_from_address: str = "silent-relay@localhost"
     smtp_from_name: str = "SilentRelay"
     account_creation_enabled: bool = True
-    default_language: str = "de"
+    default_language: str = "en"
     account_pending_retention_days: int = 7
     account_review_interval_days: int = 180
     account_review_reminder_days: Annotated[list[int], NoDecode] = [-30, -15, -3, 0, 30]

@@ -81,6 +81,23 @@ def test_browser_language_controls_public_and_admin_pages():
     assert "Admin sign-in" in admin_login.text
 
 
+def test_unsupported_browser_language_uses_english_fallback():
+    settings = get_settings()
+    previous_language = settings.default_language
+    settings.default_language = "en"
+    try:
+        with TestClient(app) as client:
+            index = client.get("/", headers={"Accept-Language": "es-ES,es;q=0.9"})
+            admin_login = client.get(
+                "/admin/login", headers={"Accept-Language": "es-ES,es;q=0.9"}
+            )
+    finally:
+        settings.default_language = previous_language
+    assert '<html lang="en">' in index.text
+    assert "Reach the right people when it matters" in index.text
+    assert "Admin sign-in" in admin_login.text
+
+
 def test_complete_admin_area_uses_browser_language():
     settings = get_settings()
     settings.admin_password_hash = hash_password("admin demo password")
