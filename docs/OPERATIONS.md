@@ -5,6 +5,11 @@ recommended installation, routine checks, updates, and the current backup
 options. Development details are documented separately in
 [DEVELOPMENT.md](DEVELOPMENT.md).
 
+Self-hosted installations use the built-in `allow_all` entitlement provider
+and require no external service. Before deliberately installing an alternative
+registration provider, review [ENTITLEMENTS.md](ENTITLEMENTS.md), including its
+fail-closed behavior.
+
 ## Before you begin
 
 You need:

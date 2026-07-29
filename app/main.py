@@ -6,6 +6,7 @@ import re
 import secrets
 import time
 from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, Request
@@ -16,6 +17,9 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.database import engine
+from app.entitlements import (
+    EntitlementProviderConfigurationError, load_entitlement_provider,
+)
 from app.i18n import (
     LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, translate,
 )
@@ -23,6 +27,7 @@ from app.routers import admin, web
 
 settings = get_settings()
 templates = Jinja2Templates(directory="app/templates")
+logger = logging.getLogger("silent_relay")
 
 
 def page_context(request: Request, **values: object) -> dict[str, object]:
@@ -52,10 +57,30 @@ class JsonFormatter(logging.Formatter):
 
 handler = logging.StreamHandler()
 handler.setFormatter(JsonFormatter())
-logging.getLogger("silent_relay").addHandler(handler)
-logging.getLogger("silent_relay").setLevel(settings.log_level)
+logger.addHandler(handler)
+logger.setLevel(settings.log_level)
 
-app = FastAPI(title="SilentRelay", docs_url=None, redoc_url=None, openapi_url=None)
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    try:
+        application.state.entitlement_provider = load_entitlement_provider(
+            settings.entitlement_provider
+        )
+    except EntitlementProviderConfigurationError as exc:
+        logger.error("entitlement_provider_startup_failed: %s", exc)
+        raise
+    logger.info("entitlement_provider_loaded: %s", settings.entitlement_provider)
+    yield
+
+
+app = FastAPI(
+    title="SilentRelay",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    lifespan=lifespan,
+)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(web.router)
 app.include_router(admin.router)

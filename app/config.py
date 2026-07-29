@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     smtp_from_address: str = "silent-relay@localhost"
     smtp_from_name: str = "SilentRelay"
     account_creation_enabled: bool = True
+    entitlement_provider: str = "allow_all"
+    entitlement_provider_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
     default_language: str = "en"
     account_pending_retention_days: int = 7
     account_review_interval_days: int = 180
@@ -66,6 +68,14 @@ class Settings(BaseSettings):
         if language not in {"de", "en"}:
             raise ValueError("DEFAULT_LANGUAGE must be 'de' or 'en'")
         return language
+
+    @field_validator("entitlement_provider")
+    @classmethod
+    def validate_entitlement_provider(cls, value: str) -> str:
+        provider = value.strip()
+        if not provider:
+            raise ValueError("ENTITLEMENT_PROVIDER must not be empty")
+        return provider
 
     @field_validator("field_encryption_key")
     @classmethod
