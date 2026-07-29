@@ -15,6 +15,14 @@ from app.config import Settings, get_settings
 from app.database import get_db
 from app.dependencies import account_owner_account, account_owner_session
 from app.email_tracking import send_tracked_email
+from app.entitlements import (
+    AccountCreatedContext,
+    EntitlementProviderUnavailableError,
+    RegistrationContext,
+    RegistrationDecision,
+    notify_account_created,
+    registration_policy,
+)
 from app.i18n import (
     LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, email_body, format_date,
     normalize_language, translate,
@@ -153,18 +161,55 @@ def create_form(request: Request, db: Session = Depends(get_db), settings: Setti
 
 
 @router.post("/account/create", response_class=HTMLResponse)
-def create_account(
+async def create_account(
     request: Request,
     csrf: str = Form(...),
     language_code: str = Form("de"),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    if not settings.account_creation_enabled:
+        raise HTTPException(404)
     public_csrf_guard(request, db, settings, csrf)
     language = normalize_language(language_code, settings.default_language)
+    try:
+        decision = await registration_policy(
+            request.app.state.entitlement_provider,
+            RegistrationContext(),
+            settings.entitlement_provider_timeout_seconds,
+        )
+    except EntitlementProviderUnavailableError:
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            context(
+                request,
+                language,
+                title=translate(language, "registration.unavailable_title"),
+                message=translate(language, "registration.unavailable_message"),
+            ),
+            status_code=503,
+        )
+    if decision == RegistrationDecision.deny:
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            context(
+                request,
+                language,
+                title=translate(language, "registration.denied_title"),
+                message=translate(language, "registration.denied_message"),
+            ),
+            status_code=403,
+        )
     account, account_owner_token, setup_token = AccountService(
         settings, FieldCipher(settings.field_encryption_key)
     ).create(db, language)
+    await notify_account_created(
+        request.app.state.entitlement_provider,
+        AccountCreatedContext(account_id=account.id),
+        settings.entitlement_provider_timeout_seconds,
+    )
     account_owner_url = f"{settings.app_base_url}/account/{account_owner_token}"
     setup_url = f"{settings.app_base_url}/account/setup/{setup_token}"
     return templates.TemplateResponse(request, "created.html", context(

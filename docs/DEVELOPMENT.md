@@ -2,6 +2,8 @@
 
 This guide explains the normal development workflow for SilentRelay. For
 production installation and maintenance, use [OPERATIONS.md](OPERATIONS.md).
+The optional, narrowly scoped registration entitlement interface is documented
+in [ENTITLEMENTS.md](ENTITLEMENTS.md).
 
 ## Requirements
 
