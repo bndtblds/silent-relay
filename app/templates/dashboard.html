@@ -4,6 +4,12 @@
   <form method="post" action="/account/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Abmelden</button></form>
 </header>
 
+{% if request.query_params.get("contact_delivery") == "permanent_failure" %}
+<p class="error"><strong>Der Mailserver hat die Adresse abgelehnt.</strong> Die Bestätigungs-E-Mail konnte nicht zugestellt werden. Prüfen Sie die Adresse oder ersetzen Sie diesen Kontaktweg.</p>
+{% elif request.query_params.get("contact_delivery") == "temporary_failure" %}
+<p class="warning"><strong>Die Bestätigungs-E-Mail konnte gerade nicht versendet werden.</strong> Die Adresse wurde nicht als unzustellbar markiert. Versuchen Sie es später erneut.</p>
+{% endif %}
+
 {% if account.status.value != "active" %}<p class="warning">Benachrichtigungen können eingeschränkt sein. Bitte prüfen Sie Ihre Kontodaten.</p>{% endif %}
 <div class="summary-grid"><div><span>Nächste Kontoprüfung</span><strong>{{ next_review_date }}</strong></div><div><span>Dauerhafte Zustellprobleme</span><strong>{{ failures }}</strong></div></div>
 
@@ -25,7 +31,7 @@
   <span class="eyebrow">Person 1 · verwaltet das Konto</span>
   <div class="section-heading"><div><h2>Kontoinhaber</h2><p>Der Kontoinhaber verwaltet SilentRelay und ist zugleich Teil der Benachrichtigungsgruppe. Er wird nicht benachrichtigt, wenn eine ihm zugeordnete Vertrauensperson auslöst.</p></div></div>
   <h3>Kontaktwege des Kontoinhabers</h3>
-  <ul class="item-list">{% for c in contacts %}<li><span><strong>{{ c.value }}</strong><span class="badge {{ 'success' if c.verified else 'pending' }}">{{ "Bestätigt" if c.verified else "Bestätigung ausstehend" }}</span>{% if c.delivery_failed %}<small class="error">Eine E-Mail an diese Adresse war endgültig unzustellbar. Bitte bestätigen Sie die Adresse erneut oder ersetzen Sie sie.</small>{% endif %}</span><span class="actions">
+  <ul class="item-list">{% for c in contacts %}<li><span><strong>{{ c.value }}</strong><span class="badge {{ 'success' if c.verified else 'pending' }}">{{ "Bestätigt" if c.verified else ("Unzustellbar" if c.delivery_failed else "Bestätigung ausstehend") }}</span>{% if c.delivery_failed %}<small class="error">Eine E-Mail an diese Adresse war endgültig unzustellbar. Bitte bestätigen Sie die Adresse erneut oder ersetzen Sie sie.</small>{% endif %}</span><span class="actions">
   {% if not c.verified %}<form method="post" action="/account/contacts/{{ c.id }}/verify"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Bestätigung erneut senden</button></form>{% endif %}
   <form method="post" action="/account/contacts/{{ c.id }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger" data-confirm="Möchten Sie diesen Kontaktweg wirklich löschen?">Löschen</button></form></span></li>{% else %}<li class="empty-state">Noch kein Kontaktweg vorhanden.</li>{% endfor %}</ul>
   <form class="add-form" method="post" action="/account/contacts"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="owner_type" value="account"><label>Weitere E-Mail-Adresse<input type="email" name="value" required></label><button>Kontaktweg hinzufügen</button></form>
@@ -57,7 +63,7 @@
     </details>
 
     <section class="card-section"><h4>Kontaktwege des Partners</h4><p>Bestätigte Kontaktwege dieses Partners können Benachrichtigungen erhalten.</p>
-      <ul class="item-list">{% for c in p.contacts %}<li><span><strong>{{ c.value }}</strong><span class="badge {{ 'success' if c.verified else 'pending' }}">{{ "Bestätigt" if c.verified else "Bestätigung ausstehend" }}</span>{% if c.delivery_failed %}<small class="error">Eine E-Mail an diese Adresse war endgültig unzustellbar. Bitte bestätigen Sie die Adresse erneut oder ersetzen Sie sie.</small>{% endif %}</span><span class="actions">
+      <ul class="item-list">{% for c in p.contacts %}<li><span><strong>{{ c.value }}</strong><span class="badge {{ 'success' if c.verified else 'pending' }}">{{ "Bestätigt" if c.verified else ("Unzustellbar" if c.delivery_failed else "Bestätigung ausstehend") }}</span>{% if c.delivery_failed %}<small class="error">Eine E-Mail an diese Adresse war endgültig unzustellbar. Bitte bestätigen Sie die Adresse erneut oder ersetzen Sie sie.</small>{% endif %}</span><span class="actions">
       {% if not c.verified %}<form method="post" action="/account/contacts/{{ c.id }}/verify"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Bestätigung erneut senden</button></form>{% endif %}
       <form method="post" action="/account/contacts/{{ c.id }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger" data-confirm="Diesen Kontaktweg wirklich löschen?">Löschen</button></form></span></li>{% else %}<li class="empty-state">Noch kein Kontaktweg für diesen Partner.</li>{% endfor %}</ul>
       <form class="add-form" method="post" action="/account/contacts"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="owner_type" value="partner"><input type="hidden" name="owner_id" value="{{ p.id }}"><label>E-Mail-Adresse<input type="email" name="value" required></label><button>Kontaktweg hinzufügen</button></form>

@@ -57,9 +57,40 @@ def send_tracked_email(
     result = provider.send(
         recipient, subject, body, envelope_token=token
     )
+    if result.permanent_failure:
+        record_permanent_delivery_failure(
+            db,
+            cipher,
+            contact_method_id=contact_method_id,
+            delivery_id=delivery_id,
+            error_class=result.error_class or "permanent_delivery_failure",
+        )
     if tracking and not result.successful:
         db.delete(tracking)
     return result
+
+
+def record_permanent_delivery_failure(
+    db: Session,
+    cipher: FieldCipher,
+    *,
+    contact_method_id: str | None,
+    delivery_id: str | None,
+    error_class: str,
+    now: datetime | None = None,
+) -> None:
+    now = now or datetime.utcnow()
+    contact = db.get(ContactMethod, contact_method_id) if contact_method_id else None
+    if contact:
+        contact.permanent_failure_count += 1
+        contact.last_permanent_failure_at = now
+        contact.is_verified = False
+        contact.verified_at = None
+    delivery = db.get(Delivery, delivery_id) if delivery_id else None
+    if delivery:
+        delivery.status = DeliveryStatus.permanent_failure
+        delivery.encrypted_error_detail = cipher.encrypt(error_class)
+        _update_notification_status(db, delivery.notification_id)
 
 
 @dataclass(frozen=True)
@@ -162,27 +193,14 @@ class NdrMailboxProcessor:
             tracking.completed_at = now
 
         if report.action == "failed":
-            contact = (
-                db.get(ContactMethod, tracking.contact_method_id)
-                if tracking.contact_method_id
-                else None
+            record_permanent_delivery_failure(
+                db,
+                self.cipher,
+                contact_method_id=tracking.contact_method_id,
+                delivery_id=tracking.delivery_id,
+                error_class=f"dsn_{report.status_code}",
+                now=now,
             )
-            if contact:
-                contact.permanent_failure_count += 1
-                contact.last_permanent_failure_at = now
-                contact.is_verified = False
-                contact.verified_at = None
-            delivery = (
-                db.get(Delivery, tracking.delivery_id)
-                if tracking.delivery_id
-                else None
-            )
-            if delivery:
-                delivery.status = DeliveryStatus.permanent_failure
-                delivery.encrypted_error_detail = self.cipher.encrypt(
-                    f"dsn_{report.status_code}"
-                )
-                _update_notification_status(db, delivery.notification_id)
         return 1
 
 

@@ -32,6 +32,17 @@ class RecordingProvider:
         return DeliveryResult(True, message_id="provider-id")
 
 
+class PermanentlyRejectingProvider:
+    channel = "email"
+
+    def send(self, recipient, subject, body, *, envelope_token=None):
+        return DeliveryResult(
+            False,
+            permanent_failure=True,
+            error_class="recipient_rejected",
+        )
+
+
 class FakeImap:
     messages = {}
     deleted = []
@@ -159,6 +170,64 @@ def test_outgoing_mail_uses_opaque_envelope_token_and_stores_only_hash(
         provider.envelope_token, settings.token_hmac_key
     )
     assert provider.envelope_token not in tracking.token_hash
+
+
+def test_immediate_permanent_rejection_marks_contact_and_delivery_failed(
+    db, settings, cipher
+):
+    account = Account(status="active")
+    db.add(account)
+    db.flush()
+    contact = ContactMethod(
+        account_id=account.id,
+        owner_type="account",
+        owner_id=account.id,
+        encrypted_value=cipher.encrypt("missing@example.org"),
+        value_fingerprint="fingerprint",
+        is_verified=True,
+        verified_at=datetime.utcnow(),
+    )
+    notification = Notification(
+        account_id=account.id,
+        status=NotificationStatus.queued,
+        message_digest="digest",
+        encrypted_message_payload=cipher.encrypt("message"),
+        deduplication_key="immediate-rejection",
+    )
+    db.add_all([contact, notification])
+    db.flush()
+    delivery = Delivery(
+        notification_id=notification.id,
+        contact_method_id=contact.id,
+        provider="email",
+        status=DeliveryStatus.processing,
+    )
+    db.add(delivery)
+    db.flush()
+
+    result = send_tracked_email(
+        db,
+        settings,
+        cipher,
+        PermanentlyRejectingProvider(),
+        "missing@example.org",
+        "Subject",
+        "Body",
+        contact_method_id=contact.id,
+        delivery_id=delivery.id,
+    )
+    db.commit()
+
+    assert not result.successful
+    assert result.permanent_failure
+    assert not contact.is_verified
+    assert contact.verified_at is None
+    assert contact.permanent_failure_count == 1
+    assert contact.last_permanent_failure_at is not None
+    assert delivery.status == DeliveryStatus.permanent_failure
+    assert cipher.decrypt(delivery.encrypted_error_detail) == "recipient_rejected"
+    assert notification.status == NotificationStatus.failed
+    assert db.scalar(select(EmailDeliveryTracking)) is None
 
 
 def test_permanent_dsn_marks_contact_and_delivery_failed(db, settings, cipher):

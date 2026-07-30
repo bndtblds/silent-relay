@@ -180,6 +180,14 @@ while the receiving mail server is still retrying. No delivery report is not
 proof that a message arrived, so regular account and contact confirmation
 remains necessary.
 
+Some mail servers reject an unknown recipient immediately during the SMTP
+conversation instead of accepting the message and returning a later report.
+SilentRelay handles this direct permanent rejection in the same way: it marks
+the affected contact method unconfirmed and undeliverable, stops retrying an
+affected notification, and explains the problem to the account owner. No
+message appears in the technical inbox in this case because the receiving
+server never accepted it.
+
 All SilentRelay emails state that they are automatic and that replies are not
 read and are deleted. Disable incoming processing before using the mailbox
 manually, and remember that messages already deleted by SilentRelay cannot be

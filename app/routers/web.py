@@ -285,7 +285,13 @@ def setup_account(
     return templates.TemplateResponse(
         request,
         "setup_done.html",
-        context(request, language, mail_sent=result.successful, verify_url=verify_url),
+        context(
+            request,
+            language,
+            mail_sent=result.successful,
+            permanent_failure=result.permanent_failure,
+            verify_url=verify_url if settings.app_env != "production" else None,
+        ),
     )
 
 
@@ -485,7 +491,7 @@ def add_contact(
         ContactMethod.verification_token_hash == keyed_hash(token, settings.token_hmac_key),
     ))
     cipher = FieldCipher(settings.field_encryption_key)
-    send_tracked_email(
+    result = send_tracked_email(
         db, settings, cipher, load_email_provider(db, settings, cipher),
         value,
         translate(account.language_code, "email.verify_subject"),
@@ -496,6 +502,14 @@ def add_contact(
         contact_method_id=contact.id if contact else None,
     )
     db.commit()
+    if result.permanent_failure:
+        return RedirectResponse(
+            "/account/dashboard?contact_delivery=permanent_failure", 303
+        )
+    if not result.successful:
+        return RedirectResponse(
+            "/account/dashboard?contact_delivery=temporary_failure", 303
+        )
     return RedirectResponse("/account/dashboard", 303)
 
 
@@ -516,7 +530,7 @@ def resend_contact_verification(
     value = FieldCipher(settings.field_encryption_key).decrypt(contact.encrypted_value)
     verify_url = f"{settings.app_base_url}/verify-contact/{token}"
     cipher = FieldCipher(settings.field_encryption_key)
-    send_tracked_email(
+    result = send_tracked_email(
         db, settings, cipher, load_email_provider(db, settings, cipher),
         value,
         translate(account.language_code, "email.verify_subject"),
@@ -527,6 +541,14 @@ def resend_contact_verification(
         contact_method_id=contact.id,
     )
     db.commit()
+    if result.permanent_failure:
+        return RedirectResponse(
+            "/account/dashboard?contact_delivery=permanent_failure", 303
+        )
+    if not result.successful:
+        return RedirectResponse(
+            "/account/dashboard?contact_delivery=temporary_failure", 303
+        )
     return RedirectResponse("/account/dashboard", 303)
 
 

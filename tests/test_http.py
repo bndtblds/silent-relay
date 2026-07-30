@@ -48,6 +48,24 @@ class RecordingEmailProvider:
         return DeliveryResult(True, message_id="test-message")
 
 
+class PermanentlyRejectingEmailProvider:
+    channel = "email"
+
+    def send(
+        self,
+        recipient: str,
+        subject: str,
+        body: str,
+        *,
+        envelope_token: str | None = None,
+    ) -> DeliveryResult:
+        return DeliveryResult(
+            False,
+            permanent_failure=True,
+            error_class="recipient_rejected",
+        )
+
+
 def test_health_and_security_headers():
     with TestClient(app) as client:
         response = client.get("/health/live")
@@ -162,6 +180,51 @@ def test_selected_account_language_controls_onboarding():
     with Session(engine) as db:
         account = db.scalar(select(Account))
         assert account.language_code == "en"
+
+
+def test_production_setup_rejection_does_not_expose_verification_link(monkeypatch):
+    settings = get_settings()
+    previous_environment = settings.app_env
+    settings.app_env = "production"
+    monkeypatch.setattr(
+        web,
+        "load_email_provider",
+        lambda db, settings, cipher: PermanentlyRejectingEmailProvider(),
+    )
+    try:
+        with TestClient(app) as client:
+            create_form = client.get("/account/create")
+            created = client.post(
+                "/account/create",
+                data={"csrf": hidden_value(create_form.text, "csrf")},
+            )
+            setup_url = html.unescape(
+                re.search(
+                    r'href="(http://testserver/account/setup/[^"]+)"',
+                    created.text,
+                ).group(1)
+            )
+            setup_form = client.get(setup_url.removeprefix("http://testserver"))
+            result = client.post(
+                setup_url.removeprefix("http://testserver"),
+                data={
+                    "csrf": hidden_value(setup_form.text, "csrf"),
+                    "password": "correct horse battery staple",
+                    "email": "missing@example.org",
+                },
+            )
+    finally:
+        settings.app_env = previous_environment
+
+    assert result.status_code == 200
+    assert "als unbekannt abgelehnt" in result.text
+    assert "/verify-contact/" not in result.text
+    with Session(engine) as db:
+        contact = db.scalar(select(ContactMethod))
+        assert contact is not None
+        assert not contact.is_verified
+        assert contact.permanent_failure_count == 1
+        assert contact.last_permanent_failure_at is not None
 
 
 def test_docs_are_not_exposed():
@@ -345,6 +408,32 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
             )))
             for trusted_person_id in partner_person_ids:
                 assert db.get(TrustedPersonToken, trusted_person_id) is None
+
+        monkeypatch.setattr(
+            web,
+            "load_email_provider",
+            lambda db, settings, cipher: PermanentlyRejectingEmailProvider(),
+        )
+        rejected_contact = client.post(
+            "/account/contacts",
+            data={
+                "csrf": csrf,
+                "owner_type": "account",
+                "value": "missing@example.org",
+            },
+            follow_redirects=True,
+        )
+        assert rejected_contact.status_code == 200
+        assert "Der Mailserver hat die Adresse abgelehnt." in rejected_contact.text
+        assert "Unzustellbar" in rejected_contact.text
+        with Session(engine) as db:
+            contact = db.scalar(select(ContactMethod).where(
+                ContactMethod.owner_type == "account",
+                ContactMethod.is_verified.is_(False),
+                ContactMethod.permanent_failure_count == 1,
+            ))
+            assert contact is not None
+            assert contact.last_permanent_failure_at is not None
 
 
 def test_admin_can_configure_and_test_smtp(monkeypatch):

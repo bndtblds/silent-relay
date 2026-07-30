@@ -35,6 +35,17 @@ class TemporaryFailureProvider:
         return DeliveryResult(False, error_class="temporary_smtp_error")
 
 
+class PermanentFailureProvider:
+    channel = "email"
+
+    def send(self, recipient, subject, body, *, envelope_token=None):
+        return DeliveryResult(
+            False,
+            permanent_failure=True,
+            error_class="recipient_rejected",
+        )
+
+
 def active_account(db, settings, cipher):
     service = AccountService(settings, cipher)
     account, account_owner_token, setup_token = service.create(db)
@@ -186,6 +197,43 @@ def test_temporary_delivery_failure_schedules_retry(db, settings, cipher):
     delivery = db.scalar(select(Delivery).where(Delivery.notification_id == notification.id))
     assert delivery.status == DeliveryStatus.retry_scheduled
     assert delivery.next_retry_at is not None
+
+
+def test_immediate_permanent_delivery_failure_invalidates_contact(
+    db, settings, cipher
+):
+    account = active_account(db, settings, cipher)
+    management = ManagementService(settings, cipher)
+    origin = management.add_partner(db, account.id, "Origin")
+    _, token = management.add_trusted_person(
+        db, account.id, "partner", origin.id, ""
+    )
+    service = NotificationService(settings, cipher)
+    notification = service.accept(
+        db,
+        service.stage(
+            db,
+            service.resolve_person(db, token),
+            "A sufficiently long message.",
+        ),
+    )
+    assert DeliveryService(
+        settings, cipher, {"email": PermanentFailureProvider()}
+    ).process_due(db) == 1
+
+    delivery = db.scalar(
+        select(Delivery).where(Delivery.notification_id == notification.id)
+    )
+    contact = db.get(ContactMethod, delivery.contact_method_id)
+    db.refresh(notification)
+    assert delivery.status == DeliveryStatus.permanent_failure
+    assert delivery.attempt_count == 1
+    assert delivery.next_retry_at is None
+    assert cipher.decrypt(delivery.encrypted_error_detail) == "recipient_rejected"
+    assert notification.status == NotificationStatus.failed
+    assert not contact.is_verified
+    assert contact.permanent_failure_count == 1
+    assert contact.last_permanent_failure_at is not None
 
 
 def test_lifecycle_transitions(db, settings, cipher):

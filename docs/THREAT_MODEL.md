@@ -101,6 +101,13 @@ messages.
 A missing delivery report is not proof of successful delivery. Regular contact
 confirmation remains necessary.
 
+An SMTP server may reject a recipient permanently before accepting the message.
+SilentRelay applies this authenticated, immediate SMTP result directly and does
+not wait for an IMAP report that cannot exist. The contact and delivery receive
+the same restricted failure state as with a correlated permanent report. In
+production, a failed initial confirmation never exposes the secret confirmation
+link in the browser.
+
 ## Remaining risks
 
 The following limitations are accepted:

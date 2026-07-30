@@ -3,9 +3,13 @@
 {% if mail_sent %}
 <p>{{ t("setup_done.sent") }}</p>
 {% else %}
-<p class="error">{{ t("setup_done.failed") }}</p>
+<p class="error">{{ t("setup_done.rejected") if permanent_failure else t("setup_done.failed") }}</p>
+{% if verify_url %}
 <p>{{ t("setup_done.local") }}</p>
 <p class="secret"><a href="{{ verify_url }}">{{ verify_url }}</a></p>
+{% else %}
+<p>{{ t("setup_done.failed_next") }}</p>
+{% endif %}
 {% endif %}
 <div class="next-step"><h2>{{ t("setup_done.next_heading") }}</h2><p>{{ t("setup_done.next") }}</p></div>
 </div>

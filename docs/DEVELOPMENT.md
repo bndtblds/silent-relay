@@ -174,7 +174,9 @@ current setup browser so that the manual account flow can continue.
 - `app/providers/` contains the notification-provider interface and SMTP
   implementation.
 - `app/email_tracking.py` creates privacy-preserving envelope correlation and
-  processes standards-compliant delivery-status reports over IMAP.
+  handles both immediate permanent SMTP rejection and standards-compliant
+  delivery-status reports received later over IMAP. Both paths must produce the
+  same contact and delivery state.
 - `app/scheduler/` runs delivery, review, lifecycle, and cleanup jobs.
 - `app/templates/` and `app/static/` contain the server-rendered user
   interface.
