@@ -91,7 +91,7 @@ docker compose version
    ```
 
    The setup asks for the primary public domain, optional additional domains,
-   technical administrator credentials, and uses German as the initial
+   technical administrator credentials, and uses English as the initial
    fallback language. It creates all secrets, starts
    SilentRelay, initializes the database, and checks the application.
 
