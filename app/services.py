@@ -13,8 +13,9 @@ from app.email_tracking import send_tracked_email
 from app.i18n import email_body, normalize_language, translate
 from app.models import (
     Account, AccountOwnerCredential, AccountReview, AccountStatus, AuditLog, ContactMethod,
-    Delivery, DeliveryStatus, Notification, NotificationStatus, Partner, ReviewReminder,
-    Submission, TrustedPerson, TrustedPersonToken,
+    ContactReview, ContactReviewToken, Delivery, DeliveryStatus, Notification,
+    NotificationStatus, Partner, ReviewReminder, Submission, TrustedPerson,
+    TrustedPersonToken,
 )
 from app.providers.base import NotificationProvider
 from app.security.core import FieldCipher, fingerprint, generate_token, hash_password, keyed_hash, verify_password
@@ -78,21 +79,57 @@ class AccountService:
         return credential.account, verification_token
 
     def verify_contact(self, db: Session, token: str) -> Account | None:
+        now = datetime.utcnow()
+        token_hash = keyed_hash(token, self.settings.token_hmac_key)
         contact = db.scalar(select(ContactMethod).where(
-            ContactMethod.verification_token_hash == keyed_hash(token, self.settings.token_hmac_key),
-            ContactMethod.verification_expires_at > datetime.utcnow(),
+            ContactMethod.verification_token_hash == token_hash,
+            ContactMethod.verification_expires_at > now,
         ))
         if not contact:
-            return None
-        now = datetime.utcnow()
+            review_token = db.get(ContactReviewToken, token_hash)
+            if not review_token or review_token.expires_at <= now:
+                return None
+            contact_review = db.get(ContactReview, review_token.contact_review_id)
+            if not contact_review or contact_review.confirmed_at:
+                return None
+            contact = db.get(ContactMethod, contact_review.contact_method_id)
+            if not contact or not contact.is_active:
+                return None
+            contact_review.confirmed_at = now
+            db.execute(delete(ContactReviewToken).where(
+                ContactReviewToken.contact_review_id == contact_review.id
+            ))
+            account = db.get(Account, contact.account_id)
+            contact.is_verified, contact.verified_at = True, now
+            contact.permanent_failure_count = 0
+            contact.last_permanent_failure_at = None
+            contact.last_review_expired_at = None
+            if account:
+                self._finish_review_if_complete(db, account, contact_review.account_review_id, now)
+            audit(db, "periodic_contact_confirmed", contact.account_id)
+            db.commit()
+            return account
+
         contact.is_verified, contact.verified_at = True, now
         contact.permanent_failure_count = 0
         contact.last_permanent_failure_at = None
+        contact.last_review_expired_at = None
         contact.verification_token_hash, contact.verification_expires_at = None, None
         account = db.get(Account, contact.account_id)
+        current_contact_review = db.scalar(select(ContactReview).where(
+            ContactReview.contact_method_id == contact.id,
+            ContactReview.confirmed_at.is_(None),
+        ).order_by(ContactReview.created_at.desc()))
+        if current_contact_review:
+            current_contact_review.confirmed_at = now
+            db.execute(delete(ContactReviewToken).where(
+                ContactReviewToken.contact_review_id == current_contact_review.id
+            ))
         if account and account.status == AccountStatus.pending_verification:
             account.status, account.activated_at, account.last_reviewed_at = AccountStatus.active, now, now
             self._create_review(db, account, now + timedelta(days=self.settings.account_review_interval_days))
+        elif account and current_contact_review:
+            self._finish_review_if_complete(db, account, current_contact_review.account_review_id, now)
         audit(db, "contact_verified", contact.account_id)
         db.commit()
         return account
@@ -107,18 +144,62 @@ class AccountService:
         account.review_grace_due_at = due + timedelta(days=self.settings.account_review_grace_days)
         return review
 
-    def confirm_review(self, db: Session, account: Account) -> None:
+    def confirm_review(self, db: Session, account: Account) -> bool:
         now = datetime.utcnow()
         current = db.scalar(select(AccountReview).where(
             AccountReview.account_id == account.id, AccountReview.confirmed_at.is_(None)
         ).order_by(AccountReview.review_due_at.desc()))
-        if current:
-            current.confirmed_at = now
-        account.status, account.disabled_at, account.deletion_due_at = AccountStatus.active, None, None
-        account.last_reviewed_at = now
-        self._create_review(db, account, now + timedelta(days=self.settings.account_review_interval_days))
-        audit(db, "review_confirmed", account.id)
+        if not current or current.review_due_at > now:
+            return False
+        current.details_confirmed_at = now
+        completed = self._finish_review_if_complete(db, account, current.id, now)
+        audit(db, "review_details_confirmed", account.id)
         db.commit()
+        return completed
+
+    def finish_current_review_if_complete(
+        self, db: Session, account: Account
+    ) -> bool:
+        current = db.scalar(select(AccountReview).where(
+            AccountReview.account_id == account.id,
+            AccountReview.confirmed_at.is_(None),
+        ).order_by(AccountReview.review_due_at.desc()))
+        if not current:
+            return False
+        completed = self._finish_review_if_complete(
+            db, account, current.id, datetime.utcnow()
+        )
+        db.commit()
+        return completed
+
+    def _finish_review_if_complete(
+        self, db: Session, account: Account, review_id: str, now: datetime
+    ) -> bool:
+        review = db.get(AccountReview, review_id)
+        if not review or review.confirmed_at or not review.details_confirmed_at:
+            return False
+        pending = db.scalar(select(func.count()).select_from(ContactReview).where(
+            ContactReview.account_review_id == review.id,
+            ContactReview.confirmed_at.is_(None),
+        ))
+        unresolved = db.scalar(select(func.count()).select_from(ContactMethod).where(
+            ContactMethod.account_id == account.id,
+            ContactMethod.is_active.is_(True),
+            ContactMethod.is_verified.is_(False),
+        ))
+        if pending or unresolved:
+            return False
+        review.confirmed_at = now
+        account.status, account.disabled_at, account.deletion_due_at = (
+            AccountStatus.active, None, None
+        )
+        account.last_reviewed_at = now
+        account.last_contact_problem_reminder_at = None
+        self._create_review(
+            db, account, now + timedelta(days=self.settings.account_review_interval_days)
+        )
+        audit(db, "review_confirmed", account.id)
+        return True
 
 
 class AuthenticationService:
@@ -412,6 +493,25 @@ class LifecycleService:
 
     def run(self, db: Session, now: datetime | None = None) -> None:
         now = now or datetime.utcnow()
+        db.execute(delete(ContactReviewToken).where(
+            ContactReviewToken.expires_at <= now
+        ))
+        expired_contact_reviews = list(db.scalars(select(ContactReview).where(
+            ContactReview.confirmed_at.is_(None),
+            ContactReview.confirmation_due_at <= now,
+        )))
+        for contact_review in expired_contact_reviews:
+            contact = db.get(ContactMethod, contact_review.contact_method_id)
+            if contact and contact.is_active:
+                contact.is_verified = False
+                contact.verified_at = None
+                contact.last_review_expired_at = now
+                account = db.get(Account, contact.account_id)
+                if account:
+                    account.last_contact_problem_reminder_at = None
+            db.execute(delete(ContactReviewToken).where(
+                ContactReviewToken.contact_review_id == contact_review.id
+            ))
         for account in db.scalars(select(Account).where(Account.status == AccountStatus.active, Account.next_review_due_at <= now)):
             account.status = AccountStatus.overdue
         for account in db.scalars(select(Account).where(Account.status == AccountStatus.overdue, Account.review_grace_due_at <= now)):

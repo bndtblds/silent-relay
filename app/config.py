@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     account_review_interval_days: int = 180
     account_review_reminder_days: Annotated[list[int], NoDecode] = [-30, -15, -3, 0, 30]
     account_review_grace_days: int = 60
+    contact_problem_reminder_days: int = Field(default=7, gt=0)
     account_retention_after_disable_days: int = 365
     delivery_max_attempts: int = 6
     message_retention_hours: int = 48

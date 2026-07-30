@@ -277,7 +277,7 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         )
         verified = client.get(verification_url.removeprefix("http://testserver"))
         assert verified.status_code == 200
-        assert "Konto ist jetzt aktiv" in verified.text
+        assert "E-Mail-Adresse ist jetzt bestätigt" in verified.text
         assert "So geht es weiter" in verified.text
 
         account_owner_path = account_owner_url.removeprefix("http://testserver")

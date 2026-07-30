@@ -3,13 +3,15 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models import (
-    Account, AccountStatus, ContactMethod, Delivery, DeliveryStatus, Notification,
+    Account, AccountReview, AccountStatus, ContactMethod, ContactReview,
+    ContactReviewToken, Delivery, DeliveryStatus, Notification,
     NotificationStatus, Partner, ReviewReminder,
 )
 from app.providers.base import DeliveryResult
+from app.security.core import keyed_hash
 from app.services import (
     AccountService, DeliveryService, LifecycleService, ManagementService, NotificationService,
 )
@@ -248,6 +250,87 @@ def test_lifecycle_transitions(db, settings, cipher):
     db.commit()
     LifecycleService(settings).run(db, now)
     assert account.status == AccountStatus.disabled
+
+
+def test_periodic_contact_confirmation_and_owner_review_complete_cycle(
+    db, settings, cipher
+):
+    account = active_account(db, settings, cipher)
+    contact = db.scalar(select(ContactMethod).where(
+        ContactMethod.account_id == account.id,
+        ContactMethod.owner_type == "account",
+    ))
+    review = db.scalar(select(AccountReview).where(
+        AccountReview.account_id == account.id,
+        AccountReview.confirmed_at.is_(None),
+    ))
+    now = datetime.utcnow()
+    review.review_due_at = now - timedelta(seconds=1)
+    account.next_review_due_at = review.review_due_at
+    token = "periodic-confirmation-token"
+    contact_review = ContactReview(
+        account_review_id=review.id,
+        contact_method_id=contact.id,
+        confirmation_due_at=now + timedelta(days=60),
+    )
+    db.add(contact_review)
+    db.flush()
+    db.add(ContactReviewToken(
+        token_hash=keyed_hash(token, settings.token_hmac_key),
+        contact_review_id=contact_review.id,
+        expires_at=contact_review.confirmation_due_at,
+    ))
+    db.add(ContactReviewToken(
+        token_hash=keyed_hash("older-unused-token", settings.token_hmac_key),
+        contact_review_id=contact_review.id,
+        expires_at=contact_review.confirmation_due_at,
+    ))
+    db.commit()
+
+    service = AccountService(settings, cipher)
+    assert not service.confirm_review(db, account)
+    assert review.details_confirmed_at is not None
+    assert review.confirmed_at is None
+
+    assert service.verify_contact(db, token) == account
+    assert review.confirmed_at is not None
+    assert account.status == AccountStatus.active
+    assert account.next_review_due_at > now
+    assert db.scalar(select(func.count()).select_from(ContactReviewToken)) == 0
+
+
+def test_expired_periodic_confirmation_excludes_contact(
+    db, settings, cipher
+):
+    account = active_account(db, settings, cipher)
+    contact = db.scalar(select(ContactMethod).where(
+        ContactMethod.account_id == account.id,
+        ContactMethod.owner_type == "account",
+    ))
+    review = db.scalar(select(AccountReview).where(
+        AccountReview.account_id == account.id,
+        AccountReview.confirmed_at.is_(None),
+    ))
+    now = datetime.utcnow()
+    contact_review = ContactReview(
+        account_review_id=review.id,
+        contact_method_id=contact.id,
+        confirmation_due_at=now - timedelta(seconds=1),
+    )
+    db.add(contact_review)
+    db.flush()
+    db.add(ContactReviewToken(
+        token_hash=keyed_hash("expired-review-token", settings.token_hmac_key),
+        contact_review_id=contact_review.id,
+        expires_at=contact_review.confirmation_due_at,
+    ))
+    db.commit()
+
+    LifecycleService(settings).run(db, now)
+
+    assert not contact.is_verified
+    assert contact.verified_at is None
+    assert contact.last_review_expired_at == now
 
 
 def test_expired_message_is_discarded(db, settings, cipher):

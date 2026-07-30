@@ -42,7 +42,11 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert "email_delivery_tracking" in tables
     assert "language_code" in account_columns
     assert "permanent_failure_count" in contact_columns
-    assert revision == "0004"
+    assert "contact_reviews" in tables
+    assert "contact_review_tokens" in tables
+    assert "last_contact_problem_reminder_at" in account_columns
+    assert "last_review_expired_at" in contact_columns
+    assert revision == "0005"
 
 
 def test_existing_database_upgrades_without_losing_data(tmp_path, monkeypatch):

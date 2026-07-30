@@ -28,8 +28,8 @@ from app.i18n import (
     normalize_language, translate,
 )
 from app.models import (
-    Account, AccountOwnerCredential, AccountStatus, ContactMethod, Partner, ServerSession,
-    TrustedPerson, TrustedPersonToken,
+    Account, AccountOwnerCredential, AccountReview, AccountStatus, ContactMethod,
+    ContactReview, Partner, ServerSession, TrustedPerson, TrustedPersonToken,
 )
 from app.providers.email import EmailNotificationProvider
 from app.public_markdown import render_public_markdown
@@ -348,6 +348,42 @@ def dashboard(
         TrustedPerson.owner_id == account.id,
     )))
     notification_service = NotificationService(settings, cipher)
+    current_review = db.scalar(select(AccountReview).where(
+        AccountReview.account_id == account.id,
+        AccountReview.confirmed_at.is_(None),
+    ).order_by(AccountReview.review_due_at.desc()))
+    contact_review_rows = (
+        list(db.scalars(select(ContactReview).where(
+            ContactReview.account_review_id == current_review.id
+        )))
+        if current_review
+        else []
+    )
+    contact_reviews = {
+        row.contact_method_id: row for row in contact_review_rows
+    }
+
+    def contact_row(contact: ContactMethod) -> dict[str, object]:
+        review = contact_reviews.get(contact.id)
+        if contact.last_permanent_failure_at and not contact.is_verified:
+            state = "undeliverable"
+        elif contact.last_review_expired_at and not contact.is_verified:
+            state = "expired"
+        elif review and not review.confirmed_at:
+            state = "review_pending"
+        elif contact.is_verified:
+            state = "confirmed"
+        else:
+            state = "initial_pending"
+        return {
+            "id": contact.id,
+            "value": cipher.decrypt(contact.encrypted_value),
+            "verified": contact.is_verified,
+            "delivery_failed": bool(contact.last_permanent_failure_at),
+            "review_expired": bool(contact.last_review_expired_at),
+            "state": state,
+        }
+
     partner_rows = []
     for partner in partners:
         people = list(db.scalars(select(TrustedPerson).where(
@@ -359,13 +395,7 @@ def dashboard(
             ContactMethod.account_id == account.id, ContactMethod.owner_type == "partner", ContactMethod.owner_id == partner.id
         )))
         partner_rows.append({"id": partner.id, "name": cipher.decrypt(partner.encrypted_name), "active": partner.is_active, "contacts": [
-            {
-                "id": c.id,
-                "value": cipher.decrypt(c.encrypted_value),
-                "verified": c.is_verified,
-                "delivery_failed": bool(c.last_permanent_failure_at),
-            }
-            for c in partner_contacts
+            contact_row(c) for c in partner_contacts
         ], "people": [
             {
                 "id": p.id,
@@ -393,15 +423,7 @@ def dashboard(
             if not account.next_review_due_at
             else format_date(account.next_review_due_at, account.language_code)
         ),
-        contacts=[
-            {
-                "id": c.id,
-                "value": cipher.decrypt(c.encrypted_value),
-                "verified": c.is_verified,
-                "delivery_failed": bool(c.last_permanent_failure_at),
-            }
-            for c in contacts
-        ],
+        contacts=[contact_row(c) for c in contacts],
         partners=partner_rows,
         owner_people=[
             {
@@ -413,6 +435,23 @@ def dashboard(
             for person in owner_people
         ],
         failures=failures, csrf=request.cookies.get("sr_account_owner_csrf", ""),
+        owner_contact_count=sum(1 for contact in contacts if contact.is_verified),
+        review={
+            "due": bool(
+                current_review
+                and current_review.review_due_at <= datetime.utcnow()
+            ),
+            "details_confirmed": bool(
+                current_review and current_review.details_confirmed_at
+            ),
+            "total": len(contact_review_rows),
+            "confirmed": sum(
+                1 for row in contact_review_rows if row.confirmed_at
+            ),
+            "pending": sum(
+                1 for row in contact_review_rows if not row.confirmed_at
+            ),
+        },
         status_label=translate(account.language_code, f"status.{account.status.value}"),
         setup_steps={
             "owner_contact": any(contact.is_verified for contact in contacts),
@@ -566,7 +605,10 @@ def delete_contact(
 ):
     csrf_guard(request, session, settings, csrf)
     db.execute(delete(ContactMethod).where(ContactMethod.id == contact_id, ContactMethod.account_id == account.id))
-    db.commit()
+    db.flush()
+    AccountService(
+        settings, FieldCipher(settings.field_encryption_key)
+    ).finish_current_review_if_complete(db, account)
     return RedirectResponse("/account/dashboard", 303)
 
 
@@ -614,7 +656,10 @@ def delete_partner(
         ContactMethod.account_id == account.id, ContactMethod.owner_type == "partner", ContactMethod.owner_id == partner.id
     ))
     db.delete(partner)
-    db.commit()
+    db.flush()
+    AccountService(
+        settings, FieldCipher(settings.field_encryption_key)
+    ).finish_current_review_if_complete(db, account)
     return RedirectResponse("/account/dashboard", 303)
 
 
@@ -691,8 +736,11 @@ def confirm_review(
     db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
 ):
     csrf_guard(request, session, settings, csrf)
-    AccountService(settings, FieldCipher(settings.field_encryption_key)).confirm_review(db, account)
-    return RedirectResponse("/account/dashboard", 303)
+    completed = AccountService(
+        settings, FieldCipher(settings.field_encryption_key)
+    ).confirm_review(db, account)
+    suffix = "complete" if completed else "waiting"
+    return RedirectResponse(f"/account/dashboard?review={suffix}", 303)
 
 
 @router.post("/account/token/rotate", response_class=HTMLResponse)

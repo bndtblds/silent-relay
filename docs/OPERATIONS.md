@@ -193,6 +193,32 @@ read and are deleted. Disable incoming processing before using the mailbox
 manually, and remember that messages already deleted by SilentRelay cannot be
 recovered.
 
+### Regular contact confirmation
+
+SilentRelay uses the account-review interval for every confirmed email
+address belonging to the account owner or a partner:
+
+1. Before the due date, the account owner receives a plain reminder. It never
+   contains the secret account-owner access link.
+2. On the due date, SilentRelay automatically sends a separate one-time
+   confirmation link to every active, confirmed address.
+3. Addresses remain usable during the configured review grace period.
+4. An address that is not confirmed before the deadline becomes unconfirmed
+   and no longer receives confidential notifications.
+5. The account owner must also confirm in account management that people,
+   trusted persons, and assignments remain current.
+
+The account review finishes only when both the people and every remaining
+contact method have been confirmed. Permanent SMTP rejection and final
+delivery reports still invalidate an address immediately.
+
+As long as an address is undeliverable or its regular confirmation has
+expired, SilentRelay reminds every other confirmed account-owner address.
+`CONTACT_PROBLEM_REMINDER_DAYS` in `.env` controls the interval and defaults
+to seven days. The account owner should therefore add at least two personal
+addresses. With only one address, SilentRelay works but cannot notify the
+account owner if that address fails.
+
 SilentRelay safely displays the operator text but does not generate universal
 legal wording. The operator remains responsible for the completeness and
 accuracy of the published information.

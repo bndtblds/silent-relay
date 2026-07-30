@@ -101,6 +101,16 @@ messages.
 A missing delivery report is not proof of successful delivery. Regular contact
 confirmation remains necessary.
 
+At every account-review interval, each active account-owner and partner
+address receives its own one-time confirmation link. The link confirms only
+that address and cannot open account management. The secret account-owner
+access is never sent by email. An unconfirmed address remains usable only
+during the review grace period and is then excluded. The account owner is
+warned through every other confirmed personal address until an invalid or
+expired contact method is repaired or removed. SilentRelay cannot send such a
+warning when the account owner's last address has failed, so the UI strongly
+recommends at least two personal addresses.
+
 An SMTP server may reject a recipient permanently before accepting the message.
 SilentRelay applies this authenticated, immediate SMTP result directly and does
 not wait for an IMAP report that cannot exist. The contact and delivery receive

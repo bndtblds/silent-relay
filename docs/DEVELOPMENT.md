@@ -177,7 +177,8 @@ current setup browser so that the manual account flow can continue.
   handles both immediate permanent SMTP rejection and standards-compliant
   delivery-status reports received later over IMAP. Both paths must produce the
   same contact and delivery state.
-- `app/scheduler/` runs delivery, review, lifecycle, and cleanup jobs.
+- `app/scheduler/` runs delivery, per-contact confirmation, account review,
+  recurring contact-problem reminders, lifecycle, and cleanup jobs.
 - `app/templates/` and `app/static/` contain the server-rendered user
   interface.
 - `migrations/` contains Alembic database migrations.
@@ -186,6 +187,16 @@ current setup browser so that the manual account flow can continue.
 Keep HTTP handling in routers and business rules in the service layer. Reuse
 the existing provider, session, encryption, and database abstractions instead
 of duplicating them.
+
+The regular review has two independent confirmations. `AccountReview`
+records the account owner's review of people and assignments.
+`ContactReview` records confirmation of each active contact method.
+`ContactReviewToken` stores only the keyed hash of each one-time link, so a
+later reminder does not invalidate an earlier unused link.
+The scheduler creates contact-review rows only when the review becomes due,
+sends only hashed one-time tokens, and uses the configured grace deadline.
+The account advances to its next review only when both parts are complete.
+Never place the secret account-owner access token in a reminder email.
 
 Public operator information is untrusted input even though only the technical
 admin can edit it. Keep its Markdown renderer allowlist-based: escape text and

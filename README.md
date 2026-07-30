@@ -36,7 +36,8 @@ replace emergency services or official arrangements.
 - Secret, printable QR access for each trusted person
 - Confidential message submission with a review step
 - Server-side recipient selection without exposing names or recipient counts
-- Verified email contact methods
+- Individually verified email contact methods with automatic periodic
+  reconfirmation
 - Optional automatic detection of permanent email delivery failures
 - German and English user interfaces with one consistent language per account
 - A separate technical administration area

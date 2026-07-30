@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models import (
+    Account,
     ContactMethod,
     Delivery,
     DeliveryStatus,
@@ -86,6 +87,9 @@ def record_permanent_delivery_failure(
         contact.last_permanent_failure_at = now
         contact.is_verified = False
         contact.verified_at = None
+        account = db.get(Account, contact.account_id)
+        if account:
+            account.last_contact_problem_reminder_at = None
     delivery = db.get(Delivery, delivery_id) if delivery_id else None
     if delivery:
         delivery.status = DeliveryStatus.permanent_failure

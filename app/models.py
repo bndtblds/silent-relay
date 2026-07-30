@@ -56,6 +56,7 @@ class Account(Base):
     last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
     next_review_due_at: Mapped[datetime | None] = mapped_column(DateTime)
     review_grace_due_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_contact_problem_reminder_at: Mapped[datetime | None] = mapped_column(DateTime)
     is_admin_locked: Mapped[bool] = mapped_column(Boolean, default=False)
     version: Mapped[int] = mapped_column(Integer, default=1)
     language_code: Mapped[str] = mapped_column(String(16), default="de")
@@ -102,6 +103,7 @@ class ContactMethod(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     permanent_failure_count: Mapped[int] = mapped_column(Integer, default=0)
     last_permanent_failure_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_review_expired_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     __table_args__ = (
@@ -187,6 +189,7 @@ class AccountReview(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid7_str)
     account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
     review_due_at: Mapped[datetime] = mapped_column(DateTime)
+    details_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -199,6 +202,35 @@ class ReviewReminder(Base):
     scheduled_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime)
     __table_args__ = (UniqueConstraint("account_review_id", "relative_day"),)
+
+
+class ContactReview(Base):
+    __tablename__ = "contact_reviews"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid7_str)
+    account_review_id: Mapped[str] = mapped_column(
+        ForeignKey("account_reviews.id", ondelete="CASCADE"), index=True
+    )
+    contact_method_id: Mapped[str] = mapped_column(
+        ForeignKey("contact_methods.id", ondelete="CASCADE"), index=True
+    )
+    confirmation_due_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_reminder_day: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    __table_args__ = (
+        UniqueConstraint("account_review_id", "contact_method_id"),
+    )
+
+
+class ContactReviewToken(Base):
+    __tablename__ = "contact_review_tokens"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    contact_review_id: Mapped[str] = mapped_column(
+        ForeignKey("contact_reviews.id", ondelete="CASCADE"), index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class ServerSession(Base):
