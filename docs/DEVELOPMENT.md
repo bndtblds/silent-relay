@@ -33,12 +33,15 @@ Create the project environment and install the locked dependencies, including
 the test tools:
 
 ```sh
-uv sync --extra test
+uv sync --locked --extra test
 ```
 
 `uv` creates and manages `.venv` automatically. Use `uv run` for project
 commands instead of platform-specific paths such as `.venv/Scripts` or
 `.venv/bin`.
+
+The production image also installs from `uv.lock`; update and verify the
+lockfile deliberately whenever project dependencies change.
 
 ## Run the tests first
 
