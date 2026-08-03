@@ -1,8 +1,10 @@
 import html
 import re
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import engine
@@ -10,8 +12,11 @@ from app.config import get_settings
 from app.main import app
 from app.models import (
     Account,
+    AccountReview,
     AuditLog,
     ContactMethod,
+    ContactReview,
+    ContactReviewToken,
     Partner,
     PublicSiteContent,
     SmtpConfiguration,
@@ -20,14 +25,31 @@ from app.models import (
 )
 from app.providers.base import DeliveryResult
 from app.routers import admin, web
-from app.security.core import hash_password
+from app.security.core import FieldCipher, hash_password, keyed_hash
 from app.security.core import SessionManager
+from app.services import AccountService, ManagementService
 
 
 def hidden_value(body: str, name: str) -> str:
     match = re.search(rf'name="{re.escape(name)}" value="([^"]+)"', body)
     assert match, f"hidden field {name!r} missing"
     return html.unescape(match.group(1))
+
+
+def confirm_contact(client: TestClient, path: str):
+    prompt = client.get(path)
+    assert prompt.status_code == 200
+    return client.post(path, data={"csrf": hidden_value(prompt.text, "csrf")})
+
+
+def create_initial_confirmation(settings, email: str = "owner@example.org"):
+    with Session(engine, expire_on_commit=False) as db:
+        service = AccountService(settings, FieldCipher(settings.field_encryption_key))
+        account, _, setup = service.create(db)
+        _, token = service.setup(
+            db, setup, "correct horse battery staple", email
+        )
+        return account.id, token
 
 
 class RecordingEmailProvider:
@@ -242,6 +264,133 @@ def test_invalid_notify_token_is_neutral():
     assert "token" not in response.text.casefold()
 
 
+def test_contact_confirmation_get_is_neutral_and_changes_no_domain_state():
+    settings = get_settings()
+    account_id, token = create_initial_confirmation(
+        settings, "private-owner@example.org"
+    )
+    with Session(engine) as db:
+        contact = db.scalar(select(ContactMethod))
+        before = (
+            contact.is_verified,
+            contact.verified_at,
+            contact.verification_token_hash,
+            db.scalar(select(func.count()).select_from(AuditLog)),
+            db.get(Account, account_id).status,
+        )
+
+    with TestClient(app) as client:
+        response = client.get(f"/verify-contact/{token}")
+
+    assert response.status_code == 200
+    assert "Kontakt jetzt bestätigen" in response.text
+    assert 'method="post"' in response.text
+    assert 'name="csrf"' in response.text
+    assert "private-owner@example.org" not in response.text
+    assert "Empfänger" not in response.text
+    assert "Partner" not in response.text
+    with Session(engine) as db:
+        contact = db.scalar(select(ContactMethod))
+        after = (
+            contact.is_verified,
+            contact.verified_at,
+            contact.verification_token_hash,
+            db.scalar(select(func.count()).select_from(AuditLog)),
+            db.get(Account, account_id).status,
+        )
+    assert after == before
+
+
+def test_contact_confirmation_post_requires_session_bound_csrf():
+    settings = get_settings()
+    _, token = create_initial_confirmation(settings)
+    path = f"/verify-contact/{token}"
+    with TestClient(app) as client:
+        prompt = client.get(path)
+        assert client.post(path, data={}).status_code == 422
+        assert client.post(path, data={"csrf": "wrong"}).status_code == 403
+        with Session(engine) as db:
+            assert not db.scalar(select(ContactMethod)).is_verified
+        confirmed = client.post(
+            path, data={"csrf": hidden_value(prompt.text, "csrf")}
+        )
+    assert confirmed.status_code == 200
+    assert "E-Mail-Adresse ist jetzt bestätigt" in confirmed.text
+
+
+def test_periodic_contact_confirmation_post_and_neutral_token_errors():
+    settings = get_settings()
+    account_id, initial_token = create_initial_confirmation(settings)
+    with Session(engine, expire_on_commit=False) as db:
+        service = AccountService(settings, FieldCipher(settings.field_encryption_key))
+        assert service.verify_contact(db, initial_token)
+        account = db.get(Account, account_id)
+        contact = db.scalar(select(ContactMethod))
+        expired_token = ManagementService(
+            settings, FieldCipher(settings.field_encryption_key)
+        ).add_contact(db, account_id, "account", account_id, "expired@example.org")
+        expired_contact = db.scalar(select(ContactMethod).where(
+            ContactMethod.verification_token_hash
+            == keyed_hash(expired_token, settings.token_hmac_key)
+        ))
+        expired_contact.verification_expires_at = datetime.utcnow() - timedelta(seconds=1)
+        review = db.scalar(select(AccountReview).where(
+            AccountReview.account_id == account_id,
+            AccountReview.confirmed_at.is_(None),
+        ))
+        review.review_due_at = datetime.utcnow() - timedelta(seconds=1)
+        account.next_review_due_at = review.review_due_at
+        contact_review = ContactReview(
+            account_review_id=review.id,
+            contact_method_id=contact.id,
+            confirmation_due_at=datetime.utcnow() + timedelta(hours=1),
+        )
+        db.add(contact_review)
+        db.flush()
+        periodic_token = "periodic-http-token"
+        db.add(ContactReviewToken(
+            token_hash=keyed_hash(periodic_token, settings.token_hmac_key),
+            contact_review_id=contact_review.id,
+            expires_at=contact_review.confirmation_due_at,
+        ))
+        db.commit()
+
+    with TestClient(app) as client:
+        confirmed = confirm_contact(client, f"/verify-contact/{periodic_token}")
+        reused = client.get(f"/verify-contact/{periodic_token}")
+        expired = client.get(f"/verify-contact/{expired_token}")
+        invalid = client.get("/verify-contact/invalid-token")
+    assert confirmed.status_code == 200
+    assert reused.status_code == expired.status_code == invalid.status_code == 404
+    assert reused.text == expired.text == invalid.text
+    with Session(engine) as db:
+        assert db.scalar(select(ContactReview)).confirmed_at is not None
+
+
+def test_parallel_contact_confirmation_posts_succeed_at_most_once():
+    settings = get_settings()
+    _, token = create_initial_confirmation(settings)
+    path = f"/verify-contact/{token}"
+    with TestClient(app) as seed_client:
+        prompt = seed_client.get(path)
+        csrf = hidden_value(prompt.text, "csrf")
+        session_cookie = seed_client.cookies.get("sr_public")
+
+    def submit() -> int:
+        with TestClient(app) as client:
+            client.cookies.set("sr_public", session_cookie)
+            return client.post(path, data={"csrf": csrf}).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        statuses = list(executor.map(lambda _: submit(), range(2)))
+    assert statuses.count(200) == 1
+    assert statuses.count(404) == 1
+    with Session(engine) as db:
+        assert db.scalar(select(func.count()).select_from(AuditLog).where(
+            AuditLog.event_type == "contact_verified"
+        )) == 1
+
+
 def test_complete_account_owner_and_notify_flow(monkeypatch):
     RecordingEmailProvider.messages = []
     provider = RecordingEmailProvider(None)
@@ -275,7 +424,9 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
             line for line in RecordingEmailProvider.messages[-1][2].splitlines()
             if "/verify-contact/" in line
         )
-        verified = client.get(verification_url.removeprefix("http://testserver"))
+        verified = confirm_contact(
+            client, verification_url.removeprefix("http://testserver")
+        )
         assert verified.status_code == 200
         assert "E-Mail-Adresse ist jetzt bestätigt" in verified.text
         assert "So geht es weiter" in verified.text
@@ -319,7 +470,9 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
             line for line in RecordingEmailProvider.messages[-1][2].splitlines()
             if "/verify-contact/" in line
         )
-        assert client.get(partner_verification_url.removeprefix("http://testserver")).status_code == 200
+        assert confirm_contact(
+            client, partner_verification_url.removeprefix("http://testserver")
+        ).status_code == 200
 
         owner_token_page = client.post(
             "/account/trusted-persons",

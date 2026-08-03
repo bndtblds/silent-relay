@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ t("verify.prompt_title") }} – SilentRelay{% endblock %}
+{% block content %}
+<section class="narrow center">
+  <span class="eyebrow">SilentRelay</span>
+  <h1>{{ t("verify.prompt_title") }}</h1>
+  <p class="lead">{{ t("verify.prompt_message") }}</p>
+  <form method="post" action="/verify-contact/{{ token }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="button-large">{{ t("verify.prompt_action") }}</button>
+  </form>
+</section>
+{% endblock %}

@@ -297,7 +297,39 @@ def setup_account(
 
 @router.get("/verify-contact/{token}", response_class=HTMLResponse)
 def verify_contact(token: str, request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    account = AccountService(settings, FieldCipher(settings.field_encryption_key)).verify_contact(db, token)
+    account = AccountService(
+        settings, FieldCipher(settings.field_encryption_key)
+    ).contact_confirmation_account(db, token)
+    if not account:
+        raise HTTPException(404)
+    return public_form_response(
+        request,
+        db,
+        settings,
+        "verify_contact.html",
+        language=account.language_code,
+        account_id=account.id,
+        token=token,
+    )
+
+
+@router.post("/verify-contact/{token}", response_class=HTMLResponse)
+def confirm_contact(
+    token: str,
+    request: Request,
+    csrf: str = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    public_csrf_guard(request, db, settings, csrf)
+    session = SessionManager(settings).resolve(
+        db, request.cookies.get("sr_public"), "public"
+    )
+    service = AccountService(settings, FieldCipher(settings.field_encryption_key))
+    candidate = service.contact_confirmation_account(db, token)
+    if not session or not candidate or session.account_id != candidate.id:
+        raise HTTPException(404)
+    account = service.verify_contact(db, token)
     if not account:
         raise HTTPException(404)
     return templates.TemplateResponse(request, "message.html", context(

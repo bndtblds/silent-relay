@@ -5,7 +5,7 @@ import json
 import unicodedata
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -78,14 +78,37 @@ class AccountService:
         db.commit()
         return credential.account, verification_token
 
-    def verify_contact(self, db: Session, token: str) -> Account | None:
+    def contact_confirmation_account(self, db: Session, token: str) -> Account | None:
         now = datetime.utcnow()
         token_hash = keyed_hash(token, self.settings.token_hmac_key)
         contact = db.scalar(select(ContactMethod).where(
             ContactMethod.verification_token_hash == token_hash,
             ContactMethod.verification_expires_at > now,
         ))
-        if not contact:
+        if contact:
+            return db.get(Account, contact.account_id)
+        review_token = db.get(ContactReviewToken, token_hash)
+        if not review_token or review_token.expires_at <= now:
+            return None
+        contact_review = db.get(ContactReview, review_token.contact_review_id)
+        if not contact_review or contact_review.confirmed_at:
+            return None
+        contact = db.get(ContactMethod, contact_review.contact_method_id)
+        if not contact or not contact.is_active:
+            return None
+        return db.get(Account, contact.account_id)
+
+    def verify_contact(self, db: Session, token: str) -> Account | None:
+        now = datetime.utcnow()
+        token_hash = keyed_hash(token, self.settings.token_hmac_key)
+        contact_id = db.execute(update(ContactMethod).where(
+            ContactMethod.verification_token_hash == token_hash,
+            ContactMethod.verification_expires_at > now,
+        ).values(
+            verification_token_hash=None,
+            verification_expires_at=None,
+        ).returning(ContactMethod.id)).scalar_one_or_none()
+        if contact_id is None:
             review_token = db.get(ContactReviewToken, token_hash)
             if not review_token or review_token.expires_at <= now:
                 return None
@@ -94,6 +117,12 @@ class AccountService:
                 return None
             contact = db.get(ContactMethod, contact_review.contact_method_id)
             if not contact or not contact.is_active:
+                return None
+            consumed_review_id = db.execute(delete(ContactReviewToken).where(
+                ContactReviewToken.token_hash == token_hash,
+                ContactReviewToken.expires_at > now,
+            ).returning(ContactReviewToken.contact_review_id)).scalar_one_or_none()
+            if consumed_review_id != contact_review.id:
                 return None
             contact_review.confirmed_at = now
             db.execute(delete(ContactReviewToken).where(
@@ -110,11 +139,14 @@ class AccountService:
             db.commit()
             return account
 
+        contact = db.get(ContactMethod, contact_id)
+        if not contact:
+            db.rollback()
+            return None
         contact.is_verified, contact.verified_at = True, now
         contact.permanent_failure_count = 0
         contact.last_permanent_failure_at = None
         contact.last_review_expired_at = None
-        contact.verification_token_hash, contact.verification_expires_at = None, None
         account = db.get(Account, contact.account_id)
         current_contact_review = db.scalar(select(ContactReview).where(
             ContactReview.contact_method_id == contact.id,

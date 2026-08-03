@@ -111,6 +111,14 @@ expired contact method is repaired or removed. SilentRelay cannot send such a
 warning when the account owner's last address has failed, so the UI strongly
 recommends at least two personal addresses.
 
+Opening a contact-confirmation link with GET never confirms the address or
+changes account or review state. GET shows only a neutral confirmation page
+and creates a short-lived server-side public session. Confirmation requires a
+deliberate POST protected by a CSRF token bound to that session. The one-time
+confirmation token is consumed atomically, so replayed or parallel requests
+cannot confirm the same contact twice. Invalid, expired, and consumed tokens
+receive the same neutral error page.
+
 An SMTP server may reject a recipient permanently before accepting the message.
 SilentRelay applies this authenticated, immediate SMTP result directly and does
 not wait for an IMAP report that cannot exist. The contact and delivery receive
