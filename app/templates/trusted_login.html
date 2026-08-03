@@ -1,0 +1,6 @@
+{% extends "base.html" %}{% block title %}{{ t("trusted.login_title") }}{% endblock %}{% block content %}
+<div class="narrow"><span class="eyebrow">{{ t("trusted.eyebrow") }}</span><h1>{{ t("trusted.login_heading") }}</h1><p class="lead">{{ t("trusted.login_lead") }}</p>
+{% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+<form class="form-card" method="post" action="/notify/{{ token }}/login"><input type="hidden" name="csrf" value="{{ csrf }}"><label for="pin">{{ t("trusted.pin") }}</label><input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="current-password" required><button>{{ t("trusted.login_submit") }}</button></form>
+<p class="form-hint">{{ t("trusted.forgotten") }}</p></div>
+{% endblock %}

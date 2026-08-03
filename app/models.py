@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -136,6 +136,15 @@ class TrustedPersonToken(Base):
     rotated_at: Mapped[datetime | None] = mapped_column(DateTime)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    pin_hash: Mapped[str | None] = mapped_column(Text)
+    enrollment_expires_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.utcnow() + timedelta(days=14), index=True
+    )
+    enrolled_at: Mapped[datetime | None] = mapped_column(DateTime)
+    failed_pin_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime)
+    setup_notified_at: Mapped[datetime | None] = mapped_column(DateTime)
+    expiry_notified_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class Notification(Base):
@@ -241,6 +250,9 @@ class ServerSession(Base):
     id_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     kind: Mapped[str] = mapped_column(String(16))
     account_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    trusted_person_id: Mapped[str | None] = mapped_column(
+        ForeignKey("trusted_persons.id", ondelete="CASCADE"), index=True
+    )
     csrf_hash: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)

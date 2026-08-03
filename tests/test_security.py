@@ -1,5 +1,6 @@
 from app.security.core import (
-    CryptoError, FieldCipher, fingerprint, generate_token, hash_password, keyed_hash, verify_password,
+    CryptoError, FieldCipher, fingerprint, generate_token, hash_password,
+    hash_pin, keyed_hash, verify_password, verify_pin,
 )
 
 
@@ -25,6 +26,20 @@ def test_password_limits():
         pass
     else:
         raise AssertionError("short password accepted")
+
+
+def test_trusted_person_pin_is_argon2id_and_rejects_obvious_values():
+    stored = hash_pin("472915")
+    assert stored.startswith("$argon2id$")
+    assert verify_pin(stored, "472915")
+    assert not verify_pin(stored, "472916")
+    for invalid in ("123456", "111111", "12345", "abcdef"):
+        try:
+            hash_pin(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"unsafe PIN accepted: {invalid}")
 
 
 def test_authenticated_field_encryption(cipher):

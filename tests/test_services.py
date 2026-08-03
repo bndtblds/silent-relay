@@ -10,10 +10,11 @@ from sqlalchemy.orm import Session
 from app.models import (
     Account, AccountReview, AccountStatus, ContactMethod, ContactReview,
     ContactReviewToken, Delivery, DeliveryStatus, Notification,
-    NotificationStatus, Partner, ReviewReminder,
+    NotificationStatus, Partner, ReviewReminder, ServerSession,
+    TrustedPersonToken,
 )
 from app.providers.base import DeliveryResult
-from app.security.core import keyed_hash
+from app.security.core import SessionManager, hash_pin, keyed_hash
 from app.services import (
     AccountService, DeliveryService, LifecycleService, ManagementService, NotificationService,
 )
@@ -677,3 +678,36 @@ def test_expired_message_is_discarded(db, settings, cipher):
     delivery = db.scalar(select(Delivery).where(Delivery.notification_id == notification.id))
     assert delivery.status == DeliveryStatus.cancelled
     assert cipher.decrypt(delivery.encrypted_error_detail) == "notification_expired"
+
+
+def test_rotating_trusted_access_revokes_pin_and_sessions(db, settings, cipher):
+    account, _, setup = AccountService(settings, cipher).create(db)
+    AccountService(settings, cipher).setup(
+        db, setup, "correct horse battery staple", "owner@example.org"
+    )
+    person, old_token = ManagementService(settings, cipher).add_trusted_person(
+        db, account.id, "account", account.id, "Trusted"
+    )
+    record = db.get(TrustedPersonToken, person.id)
+    record.pin_hash = hash_pin("472915")
+    record.enrolled_at = datetime.utcnow()
+    raw_session, _ = SessionManager(settings).create(
+        db, "trusted_person", account.id, person.id
+    )
+    db.commit()
+
+    new_token = ManagementService(settings, cipher).rotate_trusted_token(
+        db, account.id, person.id
+    )
+
+    db.refresh(record)
+    assert new_token != old_token
+    assert record.pin_hash is None
+    assert record.enrolled_at is None
+    assert record.enrollment_expires_at > datetime.utcnow() + timedelta(days=13)
+    assert SessionManager(settings).resolve(
+        db, raw_session, "trusted_person"
+    ) is None
+    assert db.scalar(select(ServerSession).where(
+        ServerSession.trusted_person_id == person.id
+    )) is None

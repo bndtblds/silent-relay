@@ -253,9 +253,37 @@ Only `POST` requests consume a limit. The default limits are:
 - five technical-admin or account sign-in attempts per client in 15 minutes;
 - three account-creation attempts per client in one hour;
 - ten contact-confirmation attempts per client and secret access in one hour;
+- five trusted-contact PIN setup or sign-in attempts per client in 15 minutes,
+  with an additional limit per QR access;
 - ten complete two-step notification attempts per client and QR access in one
   hour; and
 - 60 other state-changing requests per client per minute.
+
+## Trusted-contact PIN setup
+
+Every trusted contact must protect their QR access with a personal six-digit
+PIN before submitting a message. The PIN is stored only as an Argon2id hash and
+is never displayed or sent by email. Obvious PINs are rejected. Repeated wrong
+entries trigger both the persistent request limits described above and a
+progressive per-access lock.
+
+New QR access details can be set up for 14 days. Access details that existed
+when migration `0008` is applied receive the same one-off 14-day setup period,
+starting when the migration runs. During this period they can only be used to
+set a PIN; sending without a PIN is no longer possible. If setup is not
+completed in time, the access expires and account management shows that new
+access details are required.
+
+The scheduler emails the account holder after successful PIN setup and after an
+unused setup period expires. These emails contain neither the PIN nor secret
+access details. Make sure exactly one scheduler is running and that the account
+holder has at least one working, verified email address.
+
+There is no PIN reset. A trusted contact who has forgotten their PIN contacts
+the person who gave them the QR code. The account holder then selects
+**Create new QR access** for the relevant trusted contact. This immediately
+invalidates the old QR code, PIN and every associated trusted-contact session.
+The new QR code starts a fresh 14-day setup period.
 
 Installation-wide safety limits supplement the per-client and per-access
 limits. The bucket table is capped at 50,000 current entries and fails closed

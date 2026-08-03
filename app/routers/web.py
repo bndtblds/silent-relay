@@ -34,7 +34,10 @@ from app.models import (
 from app.providers.email import EmailNotificationProvider
 from app.public_markdown import render_public_markdown
 from app.public_site import load_public_site_content_with_fallback
-from app.security.core import FieldCipher, SessionManager, generate_token, hash_password, keyed_hash, verify_password
+from app.security.core import (
+    FieldCipher, SessionManager, generate_token, hash_password, hash_pin,
+    keyed_hash, verify_password, verify_pin,
+)
 from app.services import AccountService, AuthenticationService, DeliveryService, ManagementService, NotificationService
 from app.smtp_config import load_email_provider
 
@@ -89,6 +92,40 @@ def public_csrf_guard(request: Request, db: Session, settings: Settings, csrf: s
     session = SessionManager(settings).resolve(db, request.cookies.get("sr_public"), "public")
     if not session or not SessionManager(settings).verify_csrf(session, csrf):
         raise HTTPException(403, "Ungültiger CSRF-Token.")
+
+
+def trusted_session(
+    request: Request, db: Session, settings: Settings, person_id: str
+) -> ServerSession | None:
+    session = SessionManager(settings).resolve(
+        db, request.cookies.get("sr_trusted_person"), "trusted_person"
+    )
+    if not session or session.trusted_person_id != person_id:
+        return None
+    return session
+
+
+def set_trusted_session_cookies(
+    response, settings: Settings, raw_session: str, raw_csrf: str
+) -> None:
+    max_age = settings.session_ttl_minutes * 60
+    response.set_cookie(
+        "sr_trusted_person", raw_session, secure=settings.secure_cookies,
+        httponly=True, samesite="strict", max_age=max_age,
+    )
+    response.set_cookie(
+        "sr_trusted_person_csrf", raw_csrf, secure=settings.secure_cookies,
+        httponly=False, samesite="strict", max_age=max_age,
+    )
+
+
+def trusted_csrf_guard(
+    request: Request, db: Session, settings: Settings, person_id: str, csrf: str
+) -> ServerSession:
+    session = trusted_session(request, db, settings, person_id)
+    if not session or not SessionManager(settings).verify_csrf(session, csrf):
+        raise HTTPException(403, translate("de", "error.csrf"))
+    return session
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -387,7 +424,37 @@ def dashboard(
         TrustedPerson.owner_type == "account",
         TrustedPerson.owner_id == account.id,
     )))
+    token_records = {
+        item.trusted_person_id: item
+        for item in db.scalars(select(TrustedPersonToken).join(TrustedPerson).where(
+            TrustedPerson.account_id == account.id
+        ))
+    }
     notification_service = NotificationService(settings, cipher)
+    now = datetime.utcnow()
+
+    def person_row(person: TrustedPerson) -> dict[str, object]:
+        token_record = token_records.get(person.id)
+        enrolled = bool(token_record and token_record.pin_hash and token_record.enrolled_at)
+        expired = bool(
+            token_record and not enrolled
+            and token_record.enrollment_expires_at <= now
+        )
+        return {
+            "id": person.id,
+            "name": cipher.decrypt(person.encrypted_display_name) if person.encrypted_display_name else "",
+            "active": person.is_active,
+            "enrolled": enrolled,
+            "expired": expired,
+            "enrollment_deadline": (
+                format_date(token_record.enrollment_expires_at, account.language_code)
+                if token_record and not enrolled else ""
+            ),
+            "ready": (
+                person.is_active and enrolled
+                and bool(notification_service.eligible_contacts(db, person))
+            ),
+        }
     current_review = db.scalar(select(AccountReview).where(
         AccountReview.account_id == account.id,
         AccountReview.confirmed_at.is_(None),
@@ -436,15 +503,7 @@ def dashboard(
         )))
         partner_rows.append({"id": partner.id, "name": cipher.decrypt(partner.encrypted_name), "active": partner.is_active, "contacts": [
             contact_row(c) for c in partner_contacts
-        ], "people": [
-            {
-                "id": p.id,
-                "name": cipher.decrypt(p.encrypted_display_name) if p.encrypted_display_name else "",
-                "active": p.is_active,
-                "ready": p.is_active and bool(notification_service.eligible_contacts(db, p)),
-            }
-            for p in people
-        ]})
+        ], "people": [person_row(p) for p in people]})
     failures = db.scalar(select(func.count()).select_from(ContactMethod).where(
         ContactMethod.account_id == account.id,
         ContactMethod.last_permanent_failure_at.is_not(None),
@@ -465,15 +524,7 @@ def dashboard(
         ),
         contacts=[contact_row(c) for c in contacts],
         partners=partner_rows,
-        owner_people=[
-            {
-                "id": person.id,
-                "name": cipher.decrypt(person.encrypted_display_name) if person.encrypted_display_name else "",
-                "active": person.is_active,
-                "ready": person.is_active and bool(notification_service.eligible_contacts(db, person)),
-            }
-            for person in owner_people
-        ],
+        owner_people=[person_row(person) for person in owner_people],
         failures=failures, csrf=request.cookies.get("sr_account_owner_csrf", ""),
         owner_contact_count=sum(1 for contact in contacts if contact.is_verified),
         review={
@@ -504,7 +555,7 @@ def dashboard(
                 and verified_partner_contact_count > 0
                 and (
                     any(
-                        person.is_active and bool(notification_service.eligible_contacts(db, person))
+                        person_row(person)["ready"]
                         for person in owner_people
                     )
                     or any(
@@ -715,7 +766,7 @@ def add_person(
     url = f"{settings.app_base_url}/notify/{token}"
     return templates.TemplateResponse(request, "token.html", context(
         request, account.language_code, title=translate(account.language_code, "token.trusted_title"),
-        url=url, qr=qr_data(url)
+        url=url, qr=qr_data(url), trusted_access=True
     ))
 
 
@@ -732,7 +783,7 @@ def add_owner_person(
     url = f"{settings.app_base_url}/notify/{token}"
     return templates.TemplateResponse(request, "token.html", context(
         request, account.language_code,
-        title=translate(account.language_code, "token.owner_trusted_title"), url=url, qr=qr_data(url)
+        title=translate(account.language_code, "token.owner_trusted_title"), url=url, qr=qr_data(url), trusted_access=True
     ))
 
 
@@ -746,7 +797,7 @@ def rotate_person(
     url = f"{settings.app_base_url}/notify/{token}"
     return templates.TemplateResponse(request, "token.html", context(
         request, account.language_code, title=translate(account.language_code, "token.new_title"),
-        url=url, qr=qr_data(url)
+        url=url, qr=qr_data(url), trusted_access=True, recovery=True
     ))
 
 
@@ -836,14 +887,129 @@ router.add_api_route("/account/{token}/login", account_owner_login, methods=["PO
 
 @router.get("/notify/{token}", response_class=HTMLResponse)
 def notify_form(token: str, request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    person = NotificationService(settings, FieldCipher(settings.field_encryption_key)).resolve_person(db, token)
-    if not person:
+    service = NotificationService(settings, FieldCipher(settings.field_encryption_key))
+    access = service.resolve_access(db, token)
+    if not access:
         raise HTTPException(404)
+    person, record = access
     account = db.get(Account, person.account_id)
+    if not record.pin_hash:
+        if record.enrollment_expires_at <= datetime.utcnow():
+            return templates.TemplateResponse(
+                request, "trusted_access_expired.html",
+                context(request, account.language_code), status_code=410,
+            )
+        db.commit()
+        return public_form_response(
+            request, db, settings, "trusted_setup.html",
+            language=account.language_code, token=token,
+            expires=format_date(record.enrollment_expires_at, account.language_code),
+        )
+    if not trusted_session(request, db, settings, person.id):
+        db.commit()
+        return public_form_response(
+            request, db, settings, "trusted_login.html",
+            language=account.language_code, token=token,
+        )
+    if not service.eligible_contacts(db, person):
+        raise HTTPException(404)
     db.commit()
-    return public_form_response(
-        request, db, settings, "notify.html", language=account.language_code,
-        account_id=person.account_id, token=token
+    return templates.TemplateResponse(
+        request, "notify.html", context(
+            request, account.language_code, token=token,
+            csrf=request.cookies.get("sr_trusted_person_csrf", ""),
+        )
+    )
+
+
+@router.post("/notify/{token}/setup", response_class=HTMLResponse)
+def trusted_setup(
+    token: str, request: Request, pin: str = Form(...), pin_confirm: str = Form(...),
+    csrf: str = Form(...), db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    public_csrf_guard(request, db, settings, csrf)
+    service = NotificationService(settings, FieldCipher(settings.field_encryption_key))
+    access = service.resolve_access(db, token)
+    if not access:
+        raise HTTPException(404)
+    person, record = access
+    account = db.get(Account, person.account_id)
+    if record.pin_hash:
+        return RedirectResponse(f"/notify/{token}", 303)
+    if record.enrollment_expires_at <= datetime.utcnow():
+        return templates.TemplateResponse(
+            request, "trusted_access_expired.html",
+            context(request, account.language_code), status_code=410,
+        )
+    error = None
+    if pin != pin_confirm:
+        error = translate(account.language_code, "trusted.pin_mismatch")
+    else:
+        try:
+            record.pin_hash = hash_pin(pin)
+        except ValueError:
+            error = translate(account.language_code, "trusted.pin_invalid")
+    if error:
+        return templates.TemplateResponse(
+            request, "trusted_setup.html", context(
+                request, account.language_code, token=token, csrf=csrf,
+                expires=format_date(record.enrollment_expires_at, account.language_code),
+                error=error,
+            ), status_code=400,
+        )
+    now = datetime.utcnow()
+    record.enrolled_at = now
+    record.failed_pin_attempts = 0
+    record.locked_until = None
+    raw_session, raw_csrf = SessionManager(settings).create(
+        db, "trusted_person", account.id, person.id
+    )
+    db.commit()
+    response = RedirectResponse(f"/notify/{token}?setup=complete", 303)
+    set_trusted_session_cookies(response, settings, raw_session, raw_csrf)
+    return response
+
+
+@router.post("/notify/{token}/login", response_class=HTMLResponse)
+def trusted_login(
+    token: str, request: Request, pin: str = Form(...), csrf: str = Form(...),
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+):
+    public_csrf_guard(request, db, settings, csrf)
+    service = NotificationService(settings, FieldCipher(settings.field_encryption_key))
+    access = service.resolve_access(db, token)
+    if not access:
+        raise HTTPException(404)
+    person, record = access
+    account = db.get(Account, person.account_id)
+    now = datetime.utcnow()
+    if not record.pin_hash:
+        return RedirectResponse(f"/notify/{token}", 303)
+    if record.locked_until and record.locked_until > now:
+        error = translate(account.language_code, "trusted.pin_locked")
+    elif verify_pin(record.pin_hash, pin):
+        record.failed_pin_attempts = 0
+        record.locked_until = None
+        raw_session, raw_csrf = SessionManager(settings).create(
+            db, "trusted_person", account.id, person.id
+        )
+        db.commit()
+        response = RedirectResponse(f"/notify/{token}", 303)
+        set_trusted_session_cookies(response, settings, raw_session, raw_csrf)
+        return response
+    else:
+        record.failed_pin_attempts += 1
+        attempts = record.failed_pin_attempts
+        lock_minutes = 30 if attempts >= 10 else 5 if attempts >= 8 else 1 if attempts >= 5 else 0
+        if lock_minutes:
+            record.locked_until = now + timedelta(minutes=lock_minutes)
+        error = translate(account.language_code, "trusted.pin_failed")
+    db.commit()
+    return templates.TemplateResponse(
+        request, "trusted_login.html", context(
+            request, account.language_code, token=token, csrf=csrf, error=error,
+        ), status_code=401,
     )
 
 
@@ -852,11 +1018,11 @@ def notify_stage(
     token: str, request: Request, message: str = Form(...), csrf: str = Form(...),
     db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
 ):
-    public_csrf_guard(request, db, settings, csrf)
     service = NotificationService(settings, FieldCipher(settings.field_encryption_key))
     person = service.resolve_person(db, token)
     if not person:
         raise HTTPException(404)
+    trusted_csrf_guard(request, db, settings, person.id, csrf)
     account = db.get(Account, person.account_id)
     language = account.language_code
     try:
@@ -878,11 +1044,11 @@ def notify_confirm(
     token: str, request: Request, submission: str = Form(...), csrf: str = Form(...),
     db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
 ):
-    public_csrf_guard(request, db, settings, csrf)
     service = NotificationService(settings, FieldCipher(settings.field_encryption_key))
     person = service.resolve_person(db, token)
     if not person:
         raise HTTPException(404)
+    trusted_csrf_guard(request, db, settings, person.id, csrf)
     try:
         service.accept(db, submission)
     except LookupError:

@@ -10,7 +10,7 @@ from app.email_tracking import NdrMailboxProcessor, send_tracked_email
 from app.i18n import email_body, format_date, translate
 from app.models import (
     Account, AccountReview, ContactMethod, ContactReview, ContactReviewToken,
-    Partner, ReviewReminder,
+    Partner, ReviewReminder, TrustedPerson, TrustedPersonToken,
 )
 from app.rate_limit import purge_expired_rate_limits
 from app.security.core import FieldCipher, SessionManager, generate_token, keyed_hash
@@ -124,6 +124,9 @@ def run_jobs(settings: Settings) -> dict[str, int]:
         contact_problem_reminders = _send_contact_problem_reminders(
             db, settings, cipher, provider, now
         )
+        trusted_access_notices = _send_trusted_access_notices(
+            db, settings, cipher, provider, now
+        )
         LifecycleService(settings).run(db, now)
         sessions = SessionManager(settings).purge_expired(db)
         rate_limit_buckets = purge_expired_rate_limits(db, now)
@@ -133,6 +136,7 @@ def run_jobs(settings: Settings) -> dict[str, int]:
         "deliveries": deliveries,
         "reminders": reminders,
         "contact_problem_reminders": contact_problem_reminders,
+        "trusted_access_notices": trusted_access_notices,
         "sessions": sessions,
         "rate_limit_buckets": rate_limit_buckets,
     }
@@ -238,6 +242,66 @@ def _send_contact_problem_reminders(
             any_success = any_success or result.successful
         if any_success:
             account.last_contact_problem_reminder_at = now
+            sent += 1
+        db.commit()
+    return sent
+
+
+def _send_trusted_access_notices(
+    db, settings: Settings, cipher: FieldCipher, provider, now: datetime
+) -> int:
+    records = list(db.scalars(select(TrustedPersonToken).where(or_(
+        (
+            TrustedPersonToken.enrolled_at.is_not(None)
+            & TrustedPersonToken.setup_notified_at.is_(None)
+        ),
+        (
+            TrustedPersonToken.enrolled_at.is_(None)
+            & TrustedPersonToken.expiry_notified_at.is_(None)
+            & (TrustedPersonToken.enrollment_expires_at <= now)
+        ),
+    ))))
+    sent = 0
+    for record in records:
+        person = db.get(TrustedPerson, record.trusted_person_id)
+        account = db.get(Account, person.account_id) if person else None
+        if not person or not account:
+            continue
+        owner_contacts = list(db.scalars(select(ContactMethod).where(
+            ContactMethod.account_id == account.id,
+            ContactMethod.owner_type == "account",
+            ContactMethod.is_active.is_(True),
+            ContactMethod.is_verified.is_(True),
+        )))
+        if not owner_contacts:
+            continue
+        setup_complete = record.enrolled_at is not None
+        subject_key = (
+            "email.trusted_setup_subject" if setup_complete
+            else "email.trusted_expired_subject"
+        )
+        body_key = (
+            "email.trusted_setup_body" if setup_complete
+            else "email.trusted_expired_body"
+        )
+        handled = False
+        for contact in owner_contacts:
+            result = send_tracked_email(
+                db, settings, cipher, provider,
+                cipher.decrypt(contact.encrypted_value),
+                translate(account.language_code, subject_key),
+                email_body(
+                    account.language_code, body_key,
+                    url=settings.app_base_url,
+                ),
+                contact_method_id=contact.id,
+            )
+            handled = handled or result.successful or result.permanent_failure
+        if handled:
+            if setup_complete:
+                record.setup_notified_at = now
+            else:
+                record.expiry_notified_at = now
             sent += 1
         db.commit()
     return sent

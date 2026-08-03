@@ -66,6 +66,13 @@ def policy_for_path(path: str, settings: Settings) -> tuple[RateLimitPolicy, str
             settings.rate_limit_contact_confirmation_attempts,
             settings.rate_limit_contact_confirmation_attempts * 100,
         ), parts[1]
+    if len(parts) == 3 and parts[0] == "notify" and parts[2] in {"setup", "login"}:
+        return RateLimitPolicy(
+            f"trusted_pin_{parts[2]}", settings.rate_limit_login_window_seconds,
+            settings.rate_limit_login_attempts,
+            settings.rate_limit_login_attempts * 2,
+            settings.rate_limit_login_attempts * 100,
+        ), parts[1]
     if len(parts) in {2, 3} and parts[0] == "notify":
         return RateLimitPolicy(
             "notification_submission", settings.rate_limit_notification_window_seconds,

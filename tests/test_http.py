@@ -115,7 +115,7 @@ def test_public_html_pages_render():
     assert "Was ist SilentRelay?" in help_page.text
     assert "Die Rollen schließen einander nicht aus" in help_page.text
     assert "SilentRelay prüft weder die reale Identität" in help_page.text
-    assert "Wer den QR-Code oder Link besitzt" in help_page.text
+    assert "Vor der PIN-Einrichtung" in help_page.text
     assert "E-Mail-Anbieter und die empfangenden Mailserver" in help_page.text
     assert create.status_code == 200
     assert 'name="csrf"' in create.text
@@ -134,7 +134,7 @@ def test_browser_language_controls_public_and_admin_pages():
     assert 'href="/help?lang=en"' in index.text
     assert '<html lang="en">' in help_page.text
     assert "What is SilentRelay?" in help_page.text
-    assert "Anyone with the QR code or link" in help_page.text
+    assert "Before the PIN is set up" in help_page.text
     assert "does not provide legal recognition" in help_page.text
     assert "Account language" in create.text
     assert "Admin sign-in" in admin_login.text
@@ -281,6 +281,83 @@ def test_invalid_notify_token_is_neutral():
     assert response.status_code == 404
     assert "nicht verfügbar" in response.text
     assert "token" not in response.text.casefold()
+
+
+def test_trusted_access_requires_timely_pin_setup_and_locks_repeated_failures():
+    settings = get_settings()
+    cipher = FieldCipher(settings.field_encryption_key)
+    with Session(engine, expire_on_commit=False) as db:
+        accounts = AccountService(settings, cipher)
+        account, _, setup_token = accounts.create(db)
+        _, verification_token = accounts.setup(
+            db, setup_token, "correct horse battery staple", "owner@example.org"
+        )
+        accounts.verify_contact(db, verification_token)
+        person, access_token = ManagementService(settings, cipher).add_trusted_person(
+            db, account.id, "account", account.id, "Trusted"
+        )
+
+    path = f"/notify/{access_token}"
+    with TestClient(app) as client:
+        setup_form = client.get(path)
+        assert setup_form.status_code == 200
+        assert "Einrichtung bis" in setup_form.text
+        rejected = client.post(
+            f"{path}/setup",
+            data={
+                "csrf": hidden_value(setup_form.text, "csrf"),
+                "pin": "123456",
+                "pin_confirm": "123456",
+            },
+        )
+        assert rejected.status_code == 400
+        assert "einfachen Zahlenfolge" in rejected.text
+        enrolled = client.post(
+            f"{path}/setup",
+            data={
+                "csrf": hidden_value(rejected.text, "csrf"),
+                "pin": "472915",
+                "pin_confirm": "472915",
+            },
+            follow_redirects=False,
+        )
+        assert enrolled.status_code == 303
+        client.cookies.delete("sr_trusted_person")
+        client.cookies.delete("sr_trusted_person_csrf")
+        login_form = client.get(path)
+        login_csrf = hidden_value(login_form.text, "csrf")
+        for _ in range(5):
+            failed = client.post(
+                f"{path}/login", data={"csrf": login_csrf, "pin": "472916"}
+            )
+            assert failed.status_code == 401
+
+    with Session(engine) as db:
+        record = db.get(TrustedPersonToken, person.id)
+        assert record.locked_until > datetime.utcnow()
+
+
+def test_trusted_access_setup_expires_after_fourteen_days():
+    settings = get_settings()
+    cipher = FieldCipher(settings.field_encryption_key)
+    with Session(engine, expire_on_commit=False) as db:
+        accounts = AccountService(settings, cipher)
+        account, _, setup_token = accounts.create(db)
+        _, verification_token = accounts.setup(
+            db, setup_token, "correct horse battery staple", "owner@example.org"
+        )
+        accounts.verify_contact(db, verification_token)
+        person, access_token = ManagementService(settings, cipher).add_trusted_person(
+            db, account.id, "account", account.id, "Trusted"
+        )
+        record = db.get(TrustedPersonToken, person.id)
+        record.enrollment_expires_at = datetime.utcnow() - timedelta(seconds=1)
+        db.commit()
+
+    with TestClient(app) as client:
+        expired = client.get(f"/notify/{access_token}")
+    assert expired.status_code == 410
+    assert "Zugang ist abgelaufen" in expired.text
 
 
 def test_contact_confirmation_get_is_neutral_and_changes_no_domain_state():
@@ -528,7 +605,20 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         )
 
         notify_path = notify_url.removeprefix("http://testserver")
-        notify_form = client.get(notify_path)
+        pin_setup_form = client.get(notify_path)
+        assert "Persönliche PIN einrichten" in pin_setup_form.text
+        pin_setup = client.post(
+            f"{notify_path}/setup",
+            data={
+                "csrf": hidden_value(pin_setup_form.text, "csrf"),
+                "pin": "472915",
+                "pin_confirm": "472915",
+            },
+            follow_redirects=True,
+        )
+        assert pin_setup.status_code == 200
+        assert "Was ist passiert?" in pin_setup.text
+        notify_form = pin_setup
         assert notify_form.status_code == 200
         notify_csrf = hidden_value(notify_form.text, "csrf")
         confirmation = client.post(notify_path, data={

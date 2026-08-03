@@ -33,7 +33,8 @@ replace emergency services or official arrangements.
 
 - A guided setup for account owners
 - Partners and trusted persons within one private group
-- Secret, printable QR access for each trusted person
+- Secret, printable QR access plus a personal six-digit PIN for each trusted
+  person
 - Confidential message submission with a review step
 - Server-side recipient selection without exposing names or recipient counts
 - Individually verified email contact methods with automatic periodic

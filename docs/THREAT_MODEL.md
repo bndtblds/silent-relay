@@ -53,7 +53,7 @@ trusted with account or recipient information.
 
 | Risk | SilentRelay protection |
 |---|---|
-| Someone photographs a trusted-person QR code | The access can be deactivated or replaced. Requests are rate-limited and reveal no account or recipient details. |
+| Someone photographs a trusted-person QR code | A message additionally requires the trusted person's six-digit PIN. Before initial PIN setup, however, anyone holding the code could take control of the access. Setup is therefore limited to 14 days, the account holder is notified after setup or expiry, and the access can be replaced. PIN attempts are rate-limited and progressively locked. |
 | Automated clients repeatedly attempt sign-in, registration, confirmation, or notification submission | SQLite-backed fixed-window limits apply separately by action, anonymised client, secret access where applicable, and installation-wide volume. They survive restarts and are shared by web processes using the same database. |
 | Someone obtains the account-owner QR code | The management area additionally requires the account password and creates a short-lived server session. |
 | Secret links appear in logs or referrer headers | Proxy and application access logs are disabled, responses use `no-referrer` and `no-store`, and pages load no external resources. |
@@ -157,8 +157,11 @@ The following limitations are accepted:
   in a narrow window can cause a duplicate external email; see ADR 0013.
 - Delivery reports can be missing, delayed, non-standard, or deliberately
   forged by someone who knows a current correlation code.
-- Physical copies of QR codes remain usable until their access is replaced or
-  deactivated.
+- A trusted-person QR code is usable only with its PIN after setup. A copied QR
+  code remains one part of the credential until the access is replaced. Before
+  initial setup, possession of the code is sufficient to choose the PIN; this
+  risk is limited, but not eliminated, by the 14-day deadline and account-holder
+  notification.
 - Rate limiting reduces automated abuse but cannot prevent a sufficiently
   distributed denial-of-service attack. Fixed windows can permit short bursts
   at a window boundary, and network-level capacity protection remains an

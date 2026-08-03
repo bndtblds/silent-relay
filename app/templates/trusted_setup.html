@@ -1,0 +1,11 @@
+{% extends "base.html" %}{% block title %}{{ t("trusted.setup_title") }}{% endblock %}{% block content %}
+<div class="narrow"><span class="eyebrow">{{ t("trusted.eyebrow") }}</span><h1>{{ t("trusted.setup_heading") }}</h1>
+<p class="lead">{{ t("trusted.setup_lead") }}</p>
+<div class="notice"><strong>{{ t("trusted.deadline_title") }}</strong> {{ t("trusted.deadline", expires=expires) }}</div>
+<p>{{ t("trusted.setup_explanation") }}</p><p>{{ t("trusted.handover_help") }}</p>
+{% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+<form class="form-card" method="post" action="/notify/{{ token }}/setup"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="pin">{{ t("trusted.pin") }}</label><p class="form-hint" id="pin-help">{{ t("trusted.pin_help") }}</p><input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="new-password" aria-describedby="pin-help" required>
+<label for="pin-confirm">{{ t("trusted.pin_confirm") }}</label><input id="pin-confirm" name="pin_confirm" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="new-password" required>
+<button>{{ t("trusted.setup_submit") }}</button></form></div>
+{% endblock %}

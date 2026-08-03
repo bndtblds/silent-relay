@@ -14,7 +14,7 @@ from app.i18n import email_body, normalize_language, translate
 from app.models import (
     Account, AccountOwnerCredential, AccountReview, AccountStatus, AuditLog, ContactMethod,
     ContactReview, ContactReviewToken, Delivery, DeliveryStatus, Notification,
-    NotificationStatus, Partner, ReviewReminder, Submission, TrustedPerson,
+    NotificationStatus, Partner, ReviewReminder, ServerSession, Submission, TrustedPerson,
     TrustedPersonToken,
 )
 from app.providers.base import NotificationProvider
@@ -315,7 +315,9 @@ class ManagementService:
         db.flush()
         token = generate_token()
         db.add(TrustedPersonToken(
-            trusted_person_id=person.id, token_hash=keyed_hash(token, self.settings.token_hmac_key)
+            trusted_person_id=person.id,
+            token_hash=keyed_hash(token, self.settings.token_hmac_key),
+            enrollment_expires_at=datetime.utcnow() + timedelta(days=14),
         ))
         audit(db, "trusted_person_created", account_id)
         db.commit()
@@ -332,6 +334,16 @@ class ManagementService:
         record.token_hash, record.rotated_at, record.revoked_at = (
             keyed_hash(token, self.settings.token_hmac_key), datetime.utcnow(), None
         )
+        record.pin_hash = None
+        record.enrollment_expires_at = datetime.utcnow() + timedelta(days=14)
+        record.enrolled_at = None
+        record.failed_pin_attempts = 0
+        record.locked_until = None
+        record.setup_notified_at = None
+        record.expiry_notified_at = None
+        db.execute(delete(ServerSession).where(
+            ServerSession.trusted_person_id == person_id
+        ))
         audit(db, "trusted_token_rotated", account_id)
         db.commit()
         return token
@@ -365,7 +377,9 @@ class NotificationService:
             ),
         )))
 
-    def resolve_person(self, db: Session, token: str) -> TrustedPerson | None:
+    def resolve_access(
+        self, db: Session, token: str
+    ) -> tuple[TrustedPerson, TrustedPersonToken] | None:
         record = db.scalar(select(TrustedPersonToken).where(
             TrustedPersonToken.token_hash == keyed_hash(token, self.settings.token_hmac_key),
             TrustedPersonToken.revoked_at.is_(None),
@@ -391,9 +405,16 @@ class NotificationService:
                 return None
         else:
             return None
+        record.last_used_at = datetime.utcnow()
+        return person, record
+
+    def resolve_person(self, db: Session, token: str) -> TrustedPerson | None:
+        access = self.resolve_access(db, token)
+        if not access:
+            return None
+        person, record = access
         if not self.eligible_contacts(db, person):
             return None
-        record.last_used_at = datetime.utcnow()
         return person
 
     @staticmethod

@@ -2,6 +2,7 @@
 <div class="narrow">
   <div class="progress compact" aria-label="{{ t('notify.progress') }}"><span class="active">1</span><span>2</span></div>
   <span class="eyebrow">{{ t("notify.eyebrow") }}</span><h1>{{ t("notify.heading") }}</h1>
+  {% if request.query_params.get("setup") == "complete" %}<div class="success-message"><strong>{{ t("trusted.setup_complete") }}</strong><p>{{ t("trusted.setup_notice") }}</p></div>{% endif %}
   <p class="lead">{{ t("notify.lead") }}</p>
   <div class="privacy-note"><strong>{{ t("notify.privacy") }}</strong><p>{{ t("notify.privacy_text") }}</p></div>
   {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}

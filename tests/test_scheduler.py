@@ -12,10 +12,12 @@ from app.models import (
     DeliveryStatus,
     NotificationStatus,
     ReviewReminder,
+    TrustedPersonToken,
 )
 from app.model_base import Base
 from app.providers.base import DeliveryResult
 from app.scheduler import jobs
+from app.security.core import hash_pin
 from app.services import AccountService, DeliveryService, ManagementService, NotificationService
 
 
@@ -31,6 +33,51 @@ class RecordingProvider:
         self.sent.append((recipient, subject))
         self.messages.append((recipient, subject, body))
         return DeliveryResult(True)
+
+
+def test_account_owner_is_notified_about_trusted_pin_setup_and_expiry(
+    db, settings, cipher, monkeypatch
+):
+    service = AccountService(settings, cipher)
+    account, _, setup = service.create(db)
+    _, verification = service.setup(
+        db, setup, "correct horse battery staple", "owner@example.org"
+    )
+    service.verify_contact(db, verification)
+    management = ManagementService(settings, cipher)
+    first, _ = management.add_trusted_person(
+        db, account.id, "account", account.id, "First"
+    )
+    first_token = db.get(TrustedPersonToken, first.id)
+    first_token.pin_hash = hash_pin("472915")
+    first_token.enrolled_at = datetime.utcnow()
+    second, _ = management.add_trusted_person(
+        db, account.id, "account", account.id, "Second"
+    )
+    second_token = db.get(TrustedPersonToken, second.id)
+    second_token.enrollment_expires_at = datetime.utcnow() - timedelta(seconds=1)
+    db.commit()
+
+    RecordingProvider.sent = []
+    RecordingProvider.messages = []
+    monkeypatch.setattr(
+        jobs, "load_email_provider",
+        lambda db, settings, cipher: RecordingProvider(settings),
+    )
+    monkeypatch.setattr(
+        jobs, "SessionLocal", lambda: Session(db.get_bind(), expire_on_commit=False)
+    )
+    first_run = jobs.run_jobs(settings)
+    second_run = jobs.run_jobs(settings)
+
+    subjects = [message[1] for message in RecordingProvider.messages]
+    assert first_run["trusted_access_notices"] == 2
+    assert second_run["trusted_access_notices"] == 0
+    assert subjects == [
+        "SilentRelay: PIN für Vertrauensperson eingerichtet",
+        "SilentRelay: Zugang einer Vertrauensperson abgelaufen",
+    ]
+    assert all("472915" not in message[2] for message in RecordingProvider.messages)
 
 
 def test_review_reminder_is_not_sent_twice(db, settings, cipher, monkeypatch):

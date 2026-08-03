@@ -48,6 +48,30 @@ def verify_password(stored_hash: str | None, password: str) -> bool:
         return False
 
 
+_OBVIOUS_PINS = {
+    "000000", "111111", "123123", "123456", "222222", "333333",
+    "444444", "555555", "654321", "666666", "777777", "888888",
+    "999999",
+}
+
+
+def hash_pin(pin: str) -> str:
+    if len(pin) != 6 or not pin.isascii() or not pin.isdigit():
+        raise ValueError("Die PIN muss aus genau sechs Ziffern bestehen.")
+    if pin in _OBVIOUS_PINS:
+        raise ValueError("Wählen Sie eine weniger leicht zu erratende PIN.")
+    return _password_hasher.hash(pin)
+
+
+def verify_pin(stored_hash: str | None, pin: str) -> bool:
+    if not stored_hash or len(pin) != 6 or not pin.isascii() or not pin.isdigit():
+        return False
+    try:
+        return _password_hasher.verify(stored_hash, pin)
+    except (VerifyMismatchError, InvalidHashError):
+        return False
+
+
 class FieldCipher:
     def __init__(self, key: str):
         try:
@@ -71,13 +95,17 @@ class SessionManager:
     def __init__(self, settings: Settings):
         self.settings = settings
 
-    def create(self, db: Session, kind: str, account_id: str | None = None) -> tuple[str, str]:
+    def create(
+        self, db: Session, kind: str, account_id: str | None = None,
+        trusted_person_id: str | None = None,
+    ) -> tuple[str, str]:
         raw_id, raw_csrf = generate_token(), generate_token()
         db.add(ServerSession(
             id_hash=keyed_hash(raw_id, self.settings.session_secret),
             csrf_hash=keyed_hash(raw_csrf, self.settings.csrf_secret),
             kind=kind,
             account_id=account_id,
+            trusted_person_id=trusted_person_id,
             expires_at=datetime.utcnow() + timedelta(minutes=self.settings.session_ttl_minutes),
         ))
         db.flush()

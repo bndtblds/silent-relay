@@ -319,6 +319,8 @@ preserve these rules:
 - keep sensitive database fields encrypted;
 - hash authentication tokens instead of storing them in clear text;
 - keep account-owner and technical-admin sessions separate;
+- require both the current QR access and an Argon2id-protected PIN for trusted
+  contacts, and bind their short-lived server sessions to the trusted person;
 - keep CSRF protection on state-changing browser actions;
 - do not enable access logs for secret-bearing URL paths;
 - remove temporary message content according to the existing lifecycle; and
