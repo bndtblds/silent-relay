@@ -9,7 +9,7 @@ from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.email_tracking import send_tracked_email
+from app.email_tracking import send_tracked_email, update_notification_status
 from app.i18n import email_body, normalize_language, translate
 from app.models import (
     Account, AccountOwnerCredential, AccountReview, AccountStatus, AuditLog, ContactMethod,
@@ -454,26 +454,53 @@ class DeliveryService:
 
     def process_due(self, db: Session, now: datetime | None = None) -> int:
         now = now or datetime.utcnow()
-        deliveries = list(db.scalars(select(Delivery).where(
+        delivery_ids = list(db.scalars(select(Delivery.id).where(
             Delivery.status.in_([DeliveryStatus.pending, DeliveryStatus.retry_scheduled]),
             or_(Delivery.next_retry_at.is_(None), Delivery.next_retry_at <= now),
         ).order_by(Delivery.created_at).limit(100)))
+        db.rollback()
         processed = 0
-        for delivery in deliveries:
-            delivery.status, delivery.attempt_count, delivery.last_attempt_at = (
-                DeliveryStatus.processing, delivery.attempt_count + 1, now
-            )
-            db.commit()
-            contact, notification = db.get(ContactMethod, delivery.contact_method_id), db.get(Notification, delivery.notification_id)
-            if not contact or not contact.is_active or not notification or not notification.encrypted_message_payload:
-                delivery.status = DeliveryStatus.permanent_failure
-            else:
+        for delivery_id in delivery_ids:
+            with db.begin():
+                delivery = db.get(Delivery, delivery_id, with_for_update=True)
+                if (
+                    not delivery
+                    or delivery.status not in {
+                        DeliveryStatus.pending,
+                        DeliveryStatus.retry_scheduled,
+                    }
+                    or (delivery.next_retry_at and delivery.next_retry_at > now)
+                ):
+                    continue
+
+                # Flushing the processing state establishes the SQLite write lock.
+                # The authorization check and external send remain inside this
+                # transaction so account/contact deletion cannot race between them.
+                delivery.status = DeliveryStatus.processing
+                db.flush()
+                contact, notification, reason = self._authorized_delivery(
+                    db, delivery, now
+                )
+                if reason:
+                    delivery.status = DeliveryStatus.cancelled
+                    delivery.next_retry_at = None
+                    delivery.encrypted_error_detail = self.cipher.encrypt(reason)
+                    update_notification_status(db, delivery.notification_id)
+                    processed += 1
+                    continue
+
                 provider = self.providers.get(delivery.provider)
                 if not provider:
                     delivery.status = DeliveryStatus.permanent_failure
+                    delivery.next_retry_at = None
+                    delivery.encrypted_error_detail = self.cipher.encrypt(
+                        "provider_unavailable"
+                    )
                 else:
+                    delivery.attempt_count += 1
+                    delivery.last_attempt_at = now
                     account = db.get(Account, notification.account_id)
-                    language = account.language_code if account else self.settings.default_language
+                    language = account.language_code
                     result = send_tracked_email(
                         db,
                         self.settings,
@@ -500,28 +527,65 @@ class DeliveryService:
                         delivery.next_retry_at = now + timedelta(minutes=delay)
                     if result.error_class:
                         delivery.encrypted_error_detail = self.cipher.encrypt(result.error_class)
-            processed += 1
-            self._update_notification(db, delivery.notification_id)
-            db.commit()
+                processed += 1
+                update_notification_status(db, delivery.notification_id)
         return processed
 
-    def _update_notification(self, db: Session, notification_id: str) -> None:
-        notification = db.get(Notification, notification_id)
-        statuses = list(db.scalars(select(Delivery.status).where(Delivery.notification_id == notification_id)))
+    @staticmethod
+    def _authorized_delivery(
+        db: Session, delivery: Delivery, now: datetime
+    ) -> tuple[ContactMethod | None, Notification | None, str | None]:
+        notification = db.get(
+            Notification, delivery.notification_id, with_for_update=True
+        )
         if not notification:
-            return
-        if not statuses or all(s == DeliveryStatus.permanent_failure for s in statuses):
-            notification.status = NotificationStatus.failed
-        elif all(s == DeliveryStatus.delivered for s in statuses):
-            notification.status = NotificationStatus.delivered
-            notification.encrypted_message_payload = None
-        elif any(s == DeliveryStatus.delivered for s in statuses):
-            notification.status = NotificationStatus.partially_delivered
+            return None, None, "notification_missing"
+        if notification.expires_at and notification.expires_at <= now:
+            return None, notification, "notification_expired"
+        if not notification.encrypted_message_payload:
+            return None, notification, "notification_payload_missing"
+
+        account = db.get(Account, notification.account_id, with_for_update=True)
+        if not account:
+            return None, notification, "account_missing"
+        if account.is_admin_locked:
+            return None, notification, "account_locked"
+        if account.status not in {AccountStatus.active, AccountStatus.overdue}:
+            return None, notification, "account_not_eligible"
+
+        contact = (
+            db.get(ContactMethod, delivery.contact_method_id, with_for_update=True)
+            if delivery.contact_method_id
+            else None
+        )
+        if not contact:
+            return None, notification, "contact_missing"
+        if contact.account_id != notification.account_id:
+            return contact, notification, "contact_account_mismatch"
+        if not contact.is_active:
+            return contact, notification, "contact_inactive"
+        if not contact.is_verified:
+            return contact, notification, "contact_unverified"
+        if contact.owner_type == "account":
+            if contact.owner_id != account.id:
+                return contact, notification, "contact_owner_invalid"
+        elif contact.owner_type == "partner":
+            partner = db.get(Partner, contact.owner_id, with_for_update=True)
+            if not partner:
+                return contact, notification, "partner_missing"
+            if partner.account_id != account.id:
+                return contact, notification, "partner_account_mismatch"
+            if not partner.is_active:
+                return contact, notification, "partner_inactive"
+        else:
+            return contact, notification, "contact_owner_invalid"
+        return contact, notification, None
 
 
 class LifecycleService:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.cipher = FieldCipher(settings.field_encryption_key)
 
     def run(self, db: Session, now: datetime | None = None) -> None:
         now = now or datetime.utcnow()
@@ -574,6 +638,10 @@ class LifecycleService:
                 Delivery.notification_id == notification.id,
                 Delivery.status.in_([DeliveryStatus.pending, DeliveryStatus.processing, DeliveryStatus.retry_scheduled]),
             )):
-                delivery.status = DeliveryStatus.permanent_failure
+                delivery.status = DeliveryStatus.cancelled
+                delivery.next_retry_at = None
+                delivery.encrypted_error_detail = self.cipher.encrypt(
+                    "notification_expired"
+                )
         db.execute(delete(AuditLog).where(AuditLog.created_at <= now - timedelta(days=self.settings.audit_retention_days)))
         db.commit()

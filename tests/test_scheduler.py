@@ -3,10 +3,18 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import AccountReview, ContactMethod, ContactReview, ReviewReminder
+from app.models import (
+    AccountReview,
+    ContactMethod,
+    ContactReview,
+    Delivery,
+    DeliveryStatus,
+    NotificationStatus,
+    ReviewReminder,
+)
 from app.providers.base import DeliveryResult
 from app.scheduler import jobs
-from app.services import AccountService, ManagementService
+from app.services import AccountService, ManagementService, NotificationService
 
 
 class RecordingProvider:
@@ -145,3 +153,58 @@ def test_account_owner_is_reminded_about_broken_partner_contact(
     assert len(problem_messages) == 1
     assert problem_messages[0][0] == "owner@example.org"
     assert "Partner: broken@example.org" in problem_messages[0][2]
+
+
+def test_scheduler_does_not_retry_delivery_after_authorization_is_revoked(
+    db, settings, cipher, monkeypatch
+):
+    service = AccountService(settings, cipher)
+    account, _, setup = service.create(db)
+    _, verification = service.setup(
+        db, setup, "correct horse battery staple", "owner@example.org"
+    )
+    service.verify_contact(db, verification)
+    management = ManagementService(settings, cipher)
+    origin = management.add_partner(db, account.id, "Origin")
+    _, trusted_token = management.add_trusted_person(
+        db, account.id, "partner", origin.id, ""
+    )
+    notifications = NotificationService(settings, cipher)
+    notification = notifications.accept(
+        db,
+        notifications.stage(
+            db,
+            notifications.resolve_person(db, trusted_token),
+            "A sufficiently long confidential message.",
+        ),
+    )
+    contact = db.scalar(select(ContactMethod).where(
+        ContactMethod.owner_type == "account",
+        ContactMethod.account_id == account.id,
+    ))
+    contact.is_verified = False
+    db.commit()
+
+    RecordingProvider.sent = []
+    RecordingProvider.messages = []
+    monkeypatch.setattr(
+        jobs,
+        "load_email_provider",
+        lambda db, settings, cipher: RecordingProvider(settings),
+    )
+    monkeypatch.setattr(
+        jobs, "SessionLocal", lambda: Session(db.get_bind(), expire_on_commit=False)
+    )
+
+    first = jobs.run_jobs(settings)
+    second = jobs.run_jobs(settings)
+
+    delivery = db.scalar(select(Delivery).where(
+        Delivery.notification_id == notification.id
+    ))
+    db.refresh(notification)
+    assert first["deliveries"] == 1
+    assert second["deliveries"] == 0
+    assert RecordingProvider.sent == []
+    assert delivery.status == DeliveryStatus.cancelled
+    assert notification.status == NotificationStatus.discarded

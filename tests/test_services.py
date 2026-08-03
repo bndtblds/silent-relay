@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import uuid
 
+import pytest
 from sqlalchemy import func, select
 
 from app.models import (
@@ -46,6 +47,17 @@ class PermanentFailureProvider:
             permanent_failure=True,
             error_class="recipient_rejected",
         )
+
+
+class FailIfCalledProvider:
+    channel = "email"
+
+    def __init__(self):
+        self.calls = 0
+
+    def send(self, recipient, subject, body, *, envelope_token=None):
+        self.calls += 1
+        raise AssertionError("provider must not be called")
 
 
 def active_account(db, settings, cipher):
@@ -165,6 +177,210 @@ def test_delivery_success_removes_message(db, settings, cipher):
     assert notification.status == NotificationStatus.delivered
     assert notification.encrypted_message_payload is None
     assert provider.recipients == ["owner@example.org"]
+
+
+def _pending_notification(db, settings, cipher):
+    account = active_account(db, settings, cipher)
+    management = ManagementService(settings, cipher)
+    origin = management.add_partner(db, account.id, "Origin")
+    _, token = management.add_trusted_person(
+        db, account.id, "partner", origin.id, ""
+    )
+    service = NotificationService(settings, cipher)
+    notification = service.accept(
+        db,
+        service.stage(
+            db,
+            service.resolve_person(db, token),
+            "A sufficiently long confidential message.",
+        ),
+    )
+    delivery = db.scalar(
+        select(Delivery).where(Delivery.notification_id == notification.id)
+    )
+    contact = db.get(ContactMethod, delivery.contact_method_id)
+    return account, notification, delivery, contact
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ("unverified", "contact_unverified"),
+        ("inactive_contact", "contact_inactive"),
+        ("disabled_account", "account_not_eligible"),
+        ("locked_account", "account_locked"),
+        ("other_account", "contact_account_mismatch"),
+        ("invalid_owner", "contact_owner_invalid"),
+        ("expired_notification", "notification_expired"),
+        ("missing_payload", "notification_payload_missing"),
+    ],
+)
+def test_delivery_rechecks_authorization_before_provider(
+    db, settings, cipher, change, reason
+):
+    account, notification, delivery, contact = _pending_notification(
+        db, settings, cipher
+    )
+    if change == "unverified":
+        contact.is_verified = False
+    elif change == "inactive_contact":
+        contact.is_active = False
+    elif change == "disabled_account":
+        account.status = AccountStatus.disabled
+    elif change == "locked_account":
+        account.is_admin_locked = True
+    elif change == "other_account":
+        other = Account(status=AccountStatus.active)
+        db.add(other)
+        db.flush()
+        contact.account_id = other.id
+    elif change == "invalid_owner":
+        contact.owner_id = str(uuid.uuid4())
+    elif change == "expired_notification":
+        notification.expires_at = datetime.utcnow() - timedelta(seconds=1)
+    elif change == "missing_payload":
+        notification.encrypted_message_payload = None
+    db.commit()
+
+    provider = FailIfCalledProvider()
+    service = DeliveryService(settings, cipher, {"email": provider})
+    assert service.process_due(db) == 1
+    assert service.process_due(db) == 0
+
+    db.refresh(delivery)
+    db.refresh(notification)
+    assert provider.calls == 0
+    assert delivery.status == DeliveryStatus.cancelled
+    assert delivery.attempt_count == 0
+    assert delivery.next_retry_at is None
+    assert cipher.decrypt(delivery.encrypted_error_detail) == reason
+    assert notification.status == NotificationStatus.discarded
+    assert notification.encrypted_message_payload is None
+
+
+def test_overdue_account_remains_authorized_for_delivery(db, settings, cipher):
+    account, notification, delivery, _ = _pending_notification(db, settings, cipher)
+    account.status = AccountStatus.overdue
+    db.commit()
+
+    provider = SuccessfulProvider()
+    assert DeliveryService(settings, cipher, {"email": provider}).process_due(db) == 1
+    db.refresh(delivery)
+    db.refresh(notification)
+    assert provider.recipients == ["owner@example.org"]
+    assert delivery.status == DeliveryStatus.delivered
+    assert notification.status == NotificationStatus.delivered
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ("inactive", "partner_inactive"),
+        ("deleted", "partner_missing"),
+    ],
+)
+def test_partner_must_still_exist_and_be_active_before_delivery(
+    db, settings, cipher, change, reason
+):
+    account = active_account(db, settings, cipher)
+    accounts = AccountService(settings, cipher)
+    management = ManagementService(settings, cipher)
+    recipient_partner = management.add_partner(db, account.id, "Recipient")
+    recipient_token = management.add_contact(
+        db,
+        account.id,
+        "partner",
+        recipient_partner.id,
+        "partner@example.org",
+    )
+    accounts.verify_contact(db, recipient_token)
+    origin = management.add_partner(db, account.id, "Origin")
+    _, trusted_token = management.add_trusted_person(
+        db, account.id, "partner", origin.id, ""
+    )
+    notifications = NotificationService(settings, cipher)
+    notification = notifications.accept(
+        db,
+        notifications.stage(
+            db,
+            notifications.resolve_person(db, trusted_token),
+            "A sufficiently long confidential message.",
+        ),
+    )
+    owner_delivery = db.scalar(
+        select(Delivery)
+        .join(ContactMethod, Delivery.contact_method_id == ContactMethod.id)
+        .where(
+            Delivery.notification_id == notification.id,
+            ContactMethod.owner_type == "account",
+        )
+    )
+    owner_delivery.status = DeliveryStatus.cancelled
+    partner_delivery = db.scalar(
+        select(Delivery)
+        .join(ContactMethod, Delivery.contact_method_id == ContactMethod.id)
+        .where(
+            Delivery.notification_id == notification.id,
+            ContactMethod.owner_type == "partner",
+        )
+    )
+    if change == "inactive":
+        recipient_partner.is_active = False
+    else:
+        db.delete(recipient_partner)
+    db.commit()
+
+    provider = FailIfCalledProvider()
+    assert DeliveryService(settings, cipher, {"email": provider}).process_due(db) == 1
+    db.refresh(partner_delivery)
+    db.refresh(notification)
+    assert provider.calls == 0
+    assert partner_delivery.status == DeliveryStatus.cancelled
+    assert cipher.decrypt(partner_delivery.encrypted_error_detail) == reason
+    assert notification.status == NotificationStatus.discarded
+
+
+def test_notification_aggregate_is_consistent_when_authorization_is_partly_revoked(
+    db, settings, cipher
+):
+    account = active_account(db, settings, cipher)
+    accounts = AccountService(settings, cipher)
+    management = ManagementService(settings, cipher)
+    recipient_partner = management.add_partner(db, account.id, "Recipient")
+    recipient_token = management.add_contact(
+        db, account.id, "partner", recipient_partner.id, "partner@example.org"
+    )
+    accounts.verify_contact(db, recipient_token)
+    origin = management.add_partner(db, account.id, "Origin")
+    _, trusted_token = management.add_trusted_person(
+        db, account.id, "partner", origin.id, ""
+    )
+    notifications = NotificationService(settings, cipher)
+    notification = notifications.accept(
+        db,
+        notifications.stage(
+            db,
+            notifications.resolve_person(db, trusted_token),
+            "A sufficiently long confidential message.",
+        ),
+    )
+    partner_contact = db.scalar(select(ContactMethod).where(
+        ContactMethod.owner_type == "partner",
+        ContactMethod.owner_id == recipient_partner.id,
+    ))
+    partner_contact.is_active = False
+    db.commit()
+
+    provider = SuccessfulProvider()
+    assert DeliveryService(settings, cipher, {"email": provider}).process_due(db) == 2
+    db.refresh(notification)
+    statuses = set(db.scalars(select(Delivery.status).where(
+        Delivery.notification_id == notification.id
+    )))
+    assert provider.recipients == ["owner@example.org"]
+    assert statuses == {DeliveryStatus.delivered, DeliveryStatus.cancelled}
+    assert notification.status == NotificationStatus.partially_delivered
+    assert notification.encrypted_message_payload is None
 
 
 def test_delivery_email_uses_account_language(db, settings, cipher):
@@ -348,4 +564,5 @@ def test_expired_message_is_discarded(db, settings, cipher):
     assert notification.status == NotificationStatus.discarded
     assert notification.encrypted_message_payload is None
     delivery = db.scalar(select(Delivery).where(Delivery.notification_id == notification.id))
-    assert delivery.status == DeliveryStatus.permanent_failure
+    assert delivery.status == DeliveryStatus.cancelled
+    assert cipher.decrypt(delivery.encrypted_error_detail) == "notification_expired"

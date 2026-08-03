@@ -61,6 +61,7 @@ trusted with account or recipient information.
 | Entered text injects executable browser code | Jinja escapes normal output, notification text is plain text, public Markdown uses a small allowlist, and a restrictive Content Security Policy is sent. |
 | Confidential data appears in logs | Logs contain technical events only. Message text, contact details, credentials, cookies, access tokens, and inbound email content must never be logged. |
 | The SMTP server is temporarily unavailable | Encrypted temporary payloads are retried a limited number of times with increasing delays and are removed after delivery or expiry. |
+| Permission changes after a notification is accepted | Immediately before every SMTP attempt, SilentRelay rechecks the account, contact, ownership, partner, notification, payload, and expiry inside the same transaction as the send attempt. A withdrawn delivery is cancelled without calling the provider or scheduling another retry. |
 | Two schedulers process the same SQLite database | The supported deployment runs exactly one scheduler and uses database constraints for local consistency. |
 | A claimed real-world event is false | SilentRelay forwards submitted text but cannot verify whether it is true. Messages do not claim independent verification. |
 | The server becomes unavailable | Health checks, persistent storage, and documented backup and restore procedures support recovery. |
@@ -125,6 +126,16 @@ not wait for an IMAP report that cannot exist. The contact and delivery receive
 the same restricted failure state as with a correlated permanent report. In
 production, a failed initial confirmation never exposes the secret confirmation
 link in the browser.
+
+Recipient selection is not a permanent authorization grant. The immediate send
+and every scheduler retry use the same delivery service, which rechecks that the
+account is active or overdue and not administratively locked, that the contact
+is still active, confirmed, correctly owned, and attached to the notification's
+account, that an assigned partner still exists and is active, and that the
+encrypted notification payload still exists and has not expired. The check and
+SMTP attempt share a transaction boundary so a concurrent lock or deletion
+cannot commit between them in the supported SQLite deployment. Rejected
+deliveries store only an abstract reason and are not retried.
 
 ## Remaining risks
 

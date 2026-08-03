@@ -42,6 +42,7 @@ class DeliveryStatus(str, enum.Enum):
     delivered = "delivered"
     retry_scheduled = "retry_scheduled"
     permanent_failure = "permanent_failure"
+    cancelled = "cancelled"
 
 
 class Account(Base):

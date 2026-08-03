@@ -94,7 +94,7 @@ def record_permanent_delivery_failure(
     if delivery:
         delivery.status = DeliveryStatus.permanent_failure
         delivery.encrypted_error_detail = cipher.encrypt(error_class)
-        _update_notification_status(db, delivery.notification_id)
+        update_notification_status(db, delivery.notification_id)
 
 
 @dataclass(frozen=True)
@@ -264,16 +264,27 @@ def _dsn_reports(message: Message) -> list[DsnReport]:
     return reports
 
 
-def _update_notification_status(db: Session, notification_id: str) -> None:
+def update_notification_status(db: Session, notification_id: str) -> None:
     notification = db.get(Notification, notification_id)
     if not notification:
         return
     statuses = list(db.scalars(
         select(Delivery.status).where(Delivery.notification_id == notification_id)
     ))
-    if not statuses or all(status == DeliveryStatus.permanent_failure for status in statuses):
-        notification.status = NotificationStatus.failed
+    terminal = {
+        DeliveryStatus.delivered,
+        DeliveryStatus.permanent_failure,
+        DeliveryStatus.cancelled,
+    }
+    if not statuses or all(status == DeliveryStatus.cancelled for status in statuses):
+        notification.status = NotificationStatus.discarded
     elif all(status == DeliveryStatus.delivered for status in statuses):
         notification.status = NotificationStatus.delivered
     elif any(status == DeliveryStatus.delivered for status in statuses):
         notification.status = NotificationStatus.partially_delivered
+    elif all(status in terminal for status in statuses):
+        notification.status = NotificationStatus.failed
+    else:
+        notification.status = NotificationStatus.queued
+    if statuses and all(status in terminal for status in statuses):
+        notification.encrypted_message_payload = None
