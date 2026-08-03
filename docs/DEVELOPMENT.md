@@ -198,6 +198,28 @@ sends only hashed one-time tokens, and uses the configured grace deadline.
 The account advances to its next review only when both parts are complete.
 Never place the secret account-owner access token in a reminder email.
 
+Contact-confirmation links deliberately use two HTTP steps. GET renders only a
+neutral page and creates a short-lived public session; it must never confirm a
+contact or consume a token. Only the session-bound, CSRF-protected POST may
+atomically consume an initial or periodic confirmation token. Tests for this
+flow must include automatic GET requests, replay, expiry, wrong CSRF values,
+and parallel POST attempts.
+
+Every immediate delivery and scheduler retry uses `DeliveryService`. Before a
+provider call it rechecks the notification, payload, expiry, account and lock,
+contact verification and ownership, and any partner assignment. A locally
+withdrawn delivery becomes `cancelled`; this is distinct from an external
+`permanent_failure`.
+
+Delivery processing uses an atomic conditional claim and a two-minute lease in
+`processing_started_at` and `processing_until`. A live lease cannot be claimed
+again. An expired lease is recoverable after a process restart and must repeat
+the complete authorization check. All normal terminal or retry outcomes clear
+the lease. Keep crash-before-provider, crash-after-SMTP, overlapping-cycle,
+expired-lease, and migration tests when changing this code. SMTP can still
+produce a duplicate after acceptance followed by a crash; ADR 0013 remains the
+authoritative limitation.
+
 Public operator information is untrusted input even though only the technical
 admin can edit it. Keep its Markdown renderer allowlist-based: escape text and
 attributes, preserve source line breaks, permit only the documented formatting

@@ -208,6 +208,11 @@ address belonging to the account owner or a partner:
 5. The account owner must also confirm in account management that people,
    trusted persons, and assignments remain current.
 
+Opening a confirmation link only shows a neutral page. The address is not
+confirmed until the person deliberately selects the confirmation button.
+Automatic link checks by mail-security systems therefore do not complete the
+confirmation.
+
 The account review finishes only when both the people and every remaining
 contact method have been confirmed. Permanent SMTP rejection and final
 delivery reports still invalidate an address immediately.
