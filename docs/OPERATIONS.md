@@ -280,6 +280,22 @@ docker compose ps
 Do not start a second `scheduler`. The standard Compose configuration already
 runs exactly one.
 
+Delivery processing uses a two-minute database lease. The normal SMTP
+connection timeout is 15 seconds, so the lease is long enough for an ordinary
+attempt while still allowing prompt recovery. If the scheduler process or
+container stops after claiming a delivery, restart it normally. A later cycle
+may reclaim the delivery after the lease expires; no manual database change is
+required. Existing `processing` deliveries from an older version become
+immediately reclaimable during the database migration.
+
+SQLite deployments support exactly one scheduler instance. The lease protects
+against an accidentally overlapping cycle or a restart, but it is not a basis
+for operating multiple scheduler containers. Because SMTP acceptance and the
+following SQLite commit cannot be atomic, a crash after SMTP accepts a message
+but before SilentRelay commits `delivered` may cause that external email to be
+sent again after recovery. SilentRelay therefore does not promise exactly-once
+email delivery.
+
 ## Update SilentRelay
 
 Create a current backup before every update. Then inspect the installation:

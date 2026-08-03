@@ -38,6 +38,9 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
             row[1]
             for row in connection.execute("PRAGMA table_info(contact_methods)")
         }
+        delivery_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(deliveries)")
+        }
     assert "public_site_contents" in tables
     assert "email_delivery_tracking" in tables
     assert "language_code" in account_columns
@@ -46,7 +49,9 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert "contact_review_tokens" in tables
     assert "last_contact_problem_reminder_at" in account_columns
     assert "last_review_expired_at" in contact_columns
-    assert revision == "0005"
+    assert "processing_started_at" in delivery_columns
+    assert "processing_until" in delivery_columns
+    assert revision == "0006"
 
 
 def test_existing_database_upgrades_without_losing_data(tmp_path, monkeypatch):
@@ -62,6 +67,18 @@ def test_existing_database_upgrades_without_losing_data(tmp_path, monkeypatch):
                 (id, account_id, event_type, technical_metadata, created_at, request_id)
             VALUES
                 ('existing-event', NULL, 'existing', '{}', '2026-07-26 12:00:00', NULL)
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO deliveries
+                (id, notification_id, contact_method_id, provider, status,
+                 attempt_count, last_attempt_at, next_retry_at,
+                 provider_message_id, encrypted_error_detail, created_at, delivered_at)
+            VALUES
+                ('stuck-delivery', 'missing-notification', NULL, 'email',
+                 'processing', 0, NULL, NULL, NULL, NULL,
+                 '2026-07-26 12:00:00', NULL)
             """
         )
         connection.commit()
@@ -91,8 +108,20 @@ def test_existing_database_upgrades_without_losing_data(tmp_path, monkeypatch):
             WHERE type = 'table' AND name = 'email_delivery_tracking'
             """
         ).fetchone()
+        delivery_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(deliveries)")
+        }
+        recovered_delivery = connection.execute(
+            """
+            SELECT status, processing_started_at, processing_until
+            FROM deliveries WHERE id = 'stuck-delivery'
+            """
+        ).fetchone()
     assert event == ("existing",)
     assert public_table == ("public_site_contents",)
     assert "language_code" in account_columns
     assert "permanent_failure_count" in contact_columns
     assert tracking_table == ("email_delivery_tracking",)
+    assert "processing_started_at" in delivery_columns
+    assert "processing_until" in delivery_columns
+    assert recovered_delivery == ("processing", None, None)

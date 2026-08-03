@@ -5,6 +5,7 @@ import uuid
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.models import (
     Account, AccountReview, AccountStatus, ContactMethod, ContactReview,
@@ -177,6 +178,9 @@ def test_delivery_success_removes_message(db, settings, cipher):
     assert notification.status == NotificationStatus.delivered
     assert notification.encrypted_message_payload is None
     assert provider.recipients == ["owner@example.org"]
+    delivery = db.scalar(select(Delivery).where(Delivery.notification_id == notification.id))
+    assert delivery.processing_started_at is None
+    assert delivery.processing_until is None
 
 
 def _pending_notification(db, settings, cipher):
@@ -200,6 +204,109 @@ def _pending_notification(db, settings, cipher):
     )
     contact = db.get(ContactMethod, delivery.contact_method_id)
     return account, notification, delivery, contact
+
+
+def test_valid_delivery_lease_prevents_second_claim(db, settings, cipher):
+    _, _, delivery, _ = _pending_notification(db, settings, cipher)
+    now = datetime.utcnow()
+    delivery.status = DeliveryStatus.processing
+    delivery.processing_started_at = now
+    delivery.processing_until = now + timedelta(minutes=1)
+    db.commit()
+
+    provider = SuccessfulProvider()
+    assert DeliveryService(settings, cipher, {"email": provider}).process_due(db, now) == 0
+    assert provider.recipients == []
+
+
+def test_expired_delivery_lease_is_reclaimed_after_restart(db, settings, cipher):
+    _, _, delivery, _ = _pending_notification(db, settings, cipher)
+    now = datetime.utcnow()
+    delivery.status = DeliveryStatus.processing
+    delivery.processing_started_at = now - timedelta(minutes=3)
+    delivery.processing_until = now - timedelta(minutes=1)
+    db.commit()
+
+    provider = SuccessfulProvider()
+    with Session(db.get_bind(), expire_on_commit=False) as restarted_db:
+        assert DeliveryService(settings, cipher, {"email": provider}).process_due(restarted_db, now) == 1
+    db.refresh(delivery)
+    assert delivery.status == DeliveryStatus.delivered
+    assert delivery.processing_until is None
+
+
+def test_crash_after_claim_before_provider_leaves_recoverable_lease(
+    db, settings, cipher, monkeypatch
+):
+    _, _, delivery, _ = _pending_notification(db, settings, cipher)
+    now = datetime.utcnow()
+    service = DeliveryService(settings, cipher, {"email": FailIfCalledProvider()})
+
+    monkeypatch.setattr(service, "_authorized_delivery", lambda *args: (_ for _ in ()).throw(SystemExit()))
+    with pytest.raises(SystemExit):
+        service.process_due(db, now)
+    db.rollback()
+    db.refresh(delivery)
+    assert delivery.status == DeliveryStatus.processing
+    assert delivery.processing_until == now + service.PROCESSING_LEASE
+
+    monkeypatch.undo()
+    provider = SuccessfulProvider()
+    assert DeliveryService(settings, cipher, {"email": provider}).process_due(
+        db, delivery.processing_until + timedelta(microseconds=1)
+    ) == 1
+
+
+def test_crash_after_provider_acceptance_can_duplicate_on_recovery(
+    db, settings, cipher
+):
+    _, _, delivery, _ = _pending_notification(db, settings, cipher)
+    now = datetime.utcnow()
+
+    class AcceptedThenCrashedProvider(SuccessfulProvider):
+        def send(self, *args, **kwargs):
+            super().send(*args, **kwargs)
+            raise SystemExit
+
+    first_provider = AcceptedThenCrashedProvider()
+    with pytest.raises(SystemExit):
+        DeliveryService(settings, cipher, {"email": first_provider}).process_due(db, now)
+    db.rollback()
+    db.refresh(delivery)
+    assert len(first_provider.recipients) == 1
+    assert delivery.status == DeliveryStatus.processing
+
+    second_provider = SuccessfulProvider()
+    assert DeliveryService(settings, cipher, {"email": second_provider}).process_due(
+        db, delivery.processing_until + timedelta(microseconds=1)
+    ) == 1
+    assert len(second_provider.recipients) == 1
+
+
+@pytest.mark.parametrize("revocation", ["expired_message", "blocked_contact", "locked_account"])
+def test_reclaimed_delivery_rechecks_current_authorization(
+    db, settings, cipher, revocation
+):
+    account, notification, delivery, contact = _pending_notification(db, settings, cipher)
+    now = datetime.utcnow()
+    delivery.status = DeliveryStatus.processing
+    delivery.processing_started_at = now - timedelta(minutes=3)
+    delivery.processing_until = now - timedelta(minutes=1)
+    if revocation == "expired_message":
+        notification.expires_at = now - timedelta(seconds=1)
+    elif revocation == "blocked_contact":
+        contact.is_active = False
+    else:
+        account.is_admin_locked = True
+    db.commit()
+
+    provider = FailIfCalledProvider()
+    assert DeliveryService(settings, cipher, {"email": provider}).process_due(db, now) == 1
+    db.refresh(delivery)
+    assert provider.calls == 0
+    assert delivery.status == DeliveryStatus.cancelled
+    assert delivery.processing_started_at is None
+    assert delivery.processing_until is None
 
 
 @pytest.mark.parametrize(
@@ -415,6 +522,8 @@ def test_temporary_delivery_failure_schedules_retry(db, settings, cipher):
     delivery = db.scalar(select(Delivery).where(Delivery.notification_id == notification.id))
     assert delivery.status == DeliveryStatus.retry_scheduled
     assert delivery.next_retry_at is not None
+    assert delivery.processing_started_at is None
+    assert delivery.processing_until is None
 
 
 def test_immediate_permanent_delivery_failure_invalidates_contact(
@@ -447,6 +556,8 @@ def test_immediate_permanent_delivery_failure_invalidates_contact(
     assert delivery.status == DeliveryStatus.permanent_failure
     assert delivery.attempt_count == 1
     assert delivery.next_retry_at is None
+    assert delivery.processing_started_at is None
+    assert delivery.processing_until is None
     assert cipher.decrypt(delivery.encrypted_error_detail) == "recipient_rejected"
     assert notification.status == NotificationStatus.failed
     assert not contact.is_verified

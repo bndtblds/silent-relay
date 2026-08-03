@@ -61,8 +61,9 @@ trusted with account or recipient information.
 | Entered text injects executable browser code | Jinja escapes normal output, notification text is plain text, public Markdown uses a small allowlist, and a restrictive Content Security Policy is sent. |
 | Confidential data appears in logs | Logs contain technical events only. Message text, contact details, credentials, cookies, access tokens, and inbound email content must never be logged. |
 | The SMTP server is temporarily unavailable | Encrypted temporary payloads are retried a limited number of times with increasing delays and are removed after delivery or expiry. |
+| A scheduler process or container stops while processing a delivery | A two-minute database lease records when the claim began and when it expires. A later scheduler cycle can reclaim an expired claim and repeats the complete send-time authorization check. |
 | Permission changes after a notification is accepted | Immediately before every SMTP attempt, SilentRelay rechecks the account, contact, ownership, partner, notification, payload, and expiry inside the same transaction as the send attempt. A withdrawn delivery is cancelled without calling the provider or scheduling another retry. |
-| Two schedulers process the same SQLite database | The supported deployment runs exactly one scheduler and uses database constraints for local consistency. |
+| Two schedulers process the same SQLite database | Exactly one scheduler instance is supported with SQLite. An atomic conditional claim and a time-bounded lease prevent an accidentally overlapping cycle from taking a live claim. |
 | A claimed real-world event is false | SilentRelay forwards submitted text but cannot verify whether it is true. Messages do not claim independent verification. |
 | The server becomes unavailable | Health checks, persistent storage, and documented backup and restore procedures support recovery. |
 
@@ -136,6 +137,14 @@ encrypted notification payload still exists and has not expired. The check and
 SMTP attempt share a transaction boundary so a concurrent lock or deletion
 cannot commit between them in the supported SQLite deployment. Rejected
 deliveries store only an abstract reason and are not retried.
+
+Each claim records `processing_started_at` and `processing_until`. Pending and
+due retry entries can be claimed, as can `processing` entries whose lease has
+expired; an unexpired lease cannot be taken by another cycle. Success,
+temporary failure, permanent failure, and local cancellation all clear the
+lease. A process failure leaves it to expire. Recovery can resend an email if
+the failure occurred after SMTP acceptance but before the local status commit;
+this is the accepted ADR 0013 limitation, not an exactly-once guarantee.
 
 ## Remaining risks
 

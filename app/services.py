@@ -448,6 +448,7 @@ class NotificationService:
 
 class DeliveryService:
     BACKOFF_MINUTES = (1, 5, 30, 120, 720, 1440)
+    PROCESSING_LEASE = timedelta(minutes=2)
 
     def __init__(self, settings: Settings, cipher: FieldCipher, providers: dict[str, NotificationProvider]):
         self.settings, self.cipher, self.providers = settings, cipher, providers
@@ -455,35 +456,60 @@ class DeliveryService:
     def process_due(self, db: Session, now: datetime | None = None) -> int:
         now = now or datetime.utcnow()
         delivery_ids = list(db.scalars(select(Delivery.id).where(
-            Delivery.status.in_([DeliveryStatus.pending, DeliveryStatus.retry_scheduled]),
-            or_(Delivery.next_retry_at.is_(None), Delivery.next_retry_at <= now),
+            or_(
+                and_(
+                    Delivery.status.in_([DeliveryStatus.pending, DeliveryStatus.retry_scheduled]),
+                    or_(Delivery.next_retry_at.is_(None), Delivery.next_retry_at <= now),
+                ),
+                and_(
+                    Delivery.status == DeliveryStatus.processing,
+                    or_(Delivery.processing_until.is_(None), Delivery.processing_until <= now),
+                ),
+            ),
         ).order_by(Delivery.created_at).limit(100)))
         db.rollback()
         processed = 0
         for delivery_id in delivery_ids:
+            claimed = db.execute(
+                update(Delivery)
+                .where(
+                    Delivery.id == delivery_id,
+                    or_(
+                        and_(
+                            Delivery.status.in_([DeliveryStatus.pending, DeliveryStatus.retry_scheduled]),
+                            or_(Delivery.next_retry_at.is_(None), Delivery.next_retry_at <= now),
+                        ),
+                        and_(
+                            Delivery.status == DeliveryStatus.processing,
+                            or_(Delivery.processing_until.is_(None), Delivery.processing_until <= now),
+                        ),
+                    ),
+                )
+                .values(
+                    status=DeliveryStatus.processing,
+                    processing_started_at=now,
+                    processing_until=now + self.PROCESSING_LEASE,
+                )
+            )
+            db.commit()
+            if claimed.rowcount != 1:
+                continue
             with db.begin():
                 delivery = db.get(Delivery, delivery_id, with_for_update=True)
                 if (
                     not delivery
-                    or delivery.status not in {
-                        DeliveryStatus.pending,
-                        DeliveryStatus.retry_scheduled,
-                    }
-                    or (delivery.next_retry_at and delivery.next_retry_at > now)
+                    or delivery.status != DeliveryStatus.processing
+                    or delivery.processing_started_at != now
                 ):
                     continue
 
-                # Flushing the processing state establishes the SQLite write lock.
-                # The authorization check and external send remain inside this
-                # transaction so account/contact deletion cannot race between them.
-                delivery.status = DeliveryStatus.processing
-                db.flush()
                 contact, notification, reason = self._authorized_delivery(
                     db, delivery, now
                 )
                 if reason:
                     delivery.status = DeliveryStatus.cancelled
                     delivery.next_retry_at = None
+                    self._clear_lease(delivery)
                     delivery.encrypted_error_detail = self.cipher.encrypt(reason)
                     update_notification_status(db, delivery.notification_id)
                     processed += 1
@@ -493,12 +519,15 @@ class DeliveryService:
                 if not provider:
                     delivery.status = DeliveryStatus.permanent_failure
                     delivery.next_retry_at = None
+                    self._clear_lease(delivery)
                     delivery.encrypted_error_detail = self.cipher.encrypt(
                         "provider_unavailable"
                     )
                 else:
                     delivery.attempt_count += 1
                     delivery.last_attempt_at = now
+                    # Establish the SQLite write lock before the external call.
+                    db.flush()
                     account = db.get(Account, notification.account_id)
                     language = account.language_code
                     result = send_tracked_email(
@@ -518,6 +547,7 @@ class DeliveryService:
                     )
                     if result.successful:
                         delivery.status, delivery.delivered_at = DeliveryStatus.delivered, now
+                        delivery.next_retry_at = None
                         delivery.provider_message_id = result.message_id
                     elif result.permanent_failure or delivery.attempt_count >= self.settings.delivery_max_attempts:
                         delivery.status = DeliveryStatus.permanent_failure
@@ -525,11 +555,17 @@ class DeliveryService:
                         delivery.status = DeliveryStatus.retry_scheduled
                         delay = self.BACKOFF_MINUTES[min(delivery.attempt_count - 1, len(self.BACKOFF_MINUTES) - 1)]
                         delivery.next_retry_at = now + timedelta(minutes=delay)
+                    self._clear_lease(delivery)
                     if result.error_class:
                         delivery.encrypted_error_detail = self.cipher.encrypt(result.error_class)
                 processed += 1
                 update_notification_status(db, delivery.notification_id)
         return processed
+
+    @staticmethod
+    def _clear_lease(delivery: Delivery) -> None:
+        delivery.processing_started_at = None
+        delivery.processing_until = None
 
     @staticmethod
     def _authorized_delivery(

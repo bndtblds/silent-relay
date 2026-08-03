@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
+import threading
 
-from sqlalchemy import func, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -12,9 +13,10 @@ from app.models import (
     NotificationStatus,
     ReviewReminder,
 )
+from app.model_base import Base
 from app.providers.base import DeliveryResult
 from app.scheduler import jobs
-from app.services import AccountService, ManagementService, NotificationService
+from app.services import AccountService, DeliveryService, ManagementService, NotificationService
 
 
 class RecordingProvider:
@@ -208,3 +210,63 @@ def test_scheduler_does_not_retry_delivery_after_authorization_is_revoked(
     assert RecordingProvider.sent == []
     assert delivery.status == DeliveryStatus.cancelled
     assert notification.status == NotificationStatus.discarded
+
+
+def test_overlapping_scheduler_run_cannot_take_valid_claim(
+    tmp_path, settings, cipher
+):
+    engine = create_engine(f"sqlite:///{(tmp_path / 'overlap.db').as_posix()}")
+    Base.metadata.create_all(engine)
+    with Session(engine, expire_on_commit=False) as setup_db:
+        service = AccountService(settings, cipher)
+        account, _, setup = service.create(setup_db)
+        _, verification = service.setup(
+            setup_db, setup, "correct horse battery staple", "owner@example.org"
+        )
+        service.verify_contact(setup_db, verification)
+        management = ManagementService(settings, cipher)
+        origin = management.add_partner(setup_db, account.id, "Origin")
+        _, token = management.add_trusted_person(
+            setup_db, account.id, "partner", origin.id, ""
+        )
+        notifications = NotificationService(settings, cipher)
+        notifications.accept(
+            setup_db,
+            notifications.stage(
+                setup_db,
+                notifications.resolve_person(setup_db, token),
+                "A sufficiently long confidential message.",
+            ),
+        )
+
+    entered_provider = threading.Event()
+    release_provider = threading.Event()
+    results = []
+
+    class BlockingProvider(RecordingProvider):
+        def send(self, *args, **kwargs):
+            entered_provider.set()
+            assert release_provider.wait(timeout=5)
+            return super().send(*args, **kwargs)
+
+    def run(provider):
+        with Session(engine, expire_on_commit=False) as worker_db:
+            results.append(
+                DeliveryService(settings, cipher, {"email": provider}).process_due(worker_db)
+            )
+
+    RecordingProvider.sent = []
+    first = threading.Thread(target=run, args=(BlockingProvider(settings),))
+    first.start()
+    assert entered_provider.wait(timeout=5)
+    second = threading.Thread(target=run, args=(RecordingProvider(settings),))
+    second.start()
+    second.join(timeout=5)
+    release_provider.set()
+    first.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert sorted(results) == [0, 1]
+    assert len(RecordingProvider.sent) == 1
+    engine.dispose()
