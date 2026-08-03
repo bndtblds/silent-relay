@@ -51,7 +51,16 @@ class Settings(BaseSettings):
     scheduler_interval_seconds: int = 60
     audit_retention_days: int = 90
     rate_limit_window_seconds: int = 60
-    rate_limit_default: int = 10
+    rate_limit_default: int = 60
+    rate_limit_login_window_seconds: int = 900
+    rate_limit_login_attempts: int = 5
+    rate_limit_account_creation_window_seconds: int = 3600
+    rate_limit_account_creation_attempts: int = 3
+    rate_limit_contact_confirmation_window_seconds: int = 3600
+    rate_limit_contact_confirmation_attempts: int = 10
+    rate_limit_notification_window_seconds: int = 3600
+    rate_limit_notification_attempts: int = 10
+    rate_limit_max_buckets: int = 50000
 
     @field_validator("account_review_reminder_days", mode="before")
     @classmethod
@@ -96,6 +105,21 @@ class Settings(BaseSettings):
             raise ValueError("ADMIN_PASSWORD_HASH must be an Argon2id hash")
         if self.delivery_max_attempts < 1:
             raise ValueError("DELIVERY_MAX_ATTEMPTS must be positive")
+        rate_limit_values = (
+            self.rate_limit_window_seconds,
+            self.rate_limit_default,
+            self.rate_limit_login_window_seconds,
+            self.rate_limit_login_attempts,
+            self.rate_limit_account_creation_window_seconds,
+            self.rate_limit_account_creation_attempts,
+            self.rate_limit_contact_confirmation_window_seconds,
+            self.rate_limit_contact_confirmation_attempts,
+            self.rate_limit_notification_window_seconds,
+            self.rate_limit_notification_attempts,
+            self.rate_limit_max_buckets,
+        )
+        if any(value < 1 for value in rate_limit_values):
+            raise ValueError("Rate-limit settings must be positive")
         return self
 
     def ensure_database_directory(self) -> None:

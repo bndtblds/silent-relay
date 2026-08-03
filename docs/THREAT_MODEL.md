@@ -54,6 +54,7 @@ trusted with account or recipient information.
 | Risk | SilentRelay protection |
 |---|---|
 | Someone photographs a trusted-person QR code | The access can be deactivated or replaced. Requests are rate-limited and reveal no account or recipient details. |
+| Automated clients repeatedly attempt sign-in, registration, confirmation, or notification submission | SQLite-backed fixed-window limits apply separately by action, anonymised client, secret access where applicable, and installation-wide volume. They survive restarts and are shared by web processes using the same database. |
 | Someone obtains the account-owner QR code | The management area additionally requires the account password and creates a short-lived server session. |
 | Secret links appear in logs or referrer headers | Proxy and application access logs are disabled, responses use `no-referrer` and `no-store`, and pages load no external resources. |
 | The database is copied | Sensitive fields are encrypted. Passwords use Argon2id, while access tokens and fingerprints are stored as keyed hashes. Keys remain outside the database in `.env`. |
@@ -158,6 +159,10 @@ The following limitations are accepted:
   forged by someone who knows a current correlation code.
 - Physical copies of QR codes remain usable until their access is replaced or
   deactivated.
+- Rate limiting reduces automated abuse but cannot prevent a sufficiently
+  distributed denial-of-service attack. Fixed windows can permit short bursts
+  at a window boundary, and network-level capacity protection remains an
+  operator responsibility.
 - Version 1 provides no password or account-owner access recovery.
 - Losing the `.env` keys makes encrypted database fields unreadable.
 

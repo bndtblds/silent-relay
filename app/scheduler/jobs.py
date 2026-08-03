@@ -12,6 +12,7 @@ from app.models import (
     Account, AccountReview, ContactMethod, ContactReview, ContactReviewToken,
     Partner, ReviewReminder,
 )
+from app.rate_limit import purge_expired_rate_limits
 from app.security.core import FieldCipher, SessionManager, generate_token, keyed_hash
 from app.services import DeliveryService, LifecycleService
 from app.smtp_config import load_email_provider
@@ -125,6 +126,7 @@ def run_jobs(settings: Settings) -> dict[str, int]:
         )
         LifecycleService(settings).run(db, now)
         sessions = SessionManager(settings).purge_expired(db)
+        rate_limit_buckets = purge_expired_rate_limits(db, now)
         db.commit()
     return {
         "ndr_reports": ndr_reports,
@@ -132,6 +134,7 @@ def run_jobs(settings: Settings) -> dict[str, int]:
         "reminders": reminders,
         "contact_problem_reminders": contact_problem_reminders,
         "sessions": sessions,
+        "rate_limit_buckets": rate_limit_buckets,
     }
 
 

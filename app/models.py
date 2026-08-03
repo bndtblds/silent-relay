@@ -294,3 +294,12 @@ class PublicSiteContent(Base):
     contact_text: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class RateLimitBucket(Base):
+    __tablename__ = "rate_limit_buckets"
+    id_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    action: Mapped[str] = mapped_column(String(48), index=True)
+    request_count: Mapped[int] = mapped_column(Integer)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)

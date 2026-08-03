@@ -2,21 +2,19 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import secrets
-import time
-from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
-from app.database import engine
+from app.database import SessionLocal, engine
 from app.entitlements import (
     EntitlementProviderConfigurationError, load_entitlement_provider,
 )
@@ -24,6 +22,7 @@ from app.i18n import (
     LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, translate,
 )
 from app.routers import admin, web
+from app.rate_limit import PersistentRateLimiter, policy_for_path
 
 settings = get_settings()
 templates = Jinja2Templates(directory="app/templates")
@@ -85,37 +84,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(web.router)
 app.include_router(admin.router)
 
-_requests: dict[str, deque[float]] = defaultdict(deque)
-_token_path = re.compile(r"^/(account|notify|verify-contact)/[^/]+")
-
-
-@app.middleware("http")
-async def protection(request: Request, call_next):
-    request_id = secrets.token_hex(16)
-    now = time.monotonic()
-    peer = request.client.host if request.client else "unknown"
-    key = f"{peer}:{request.url.path}"
-    bucket = _requests[key]
-    while bucket and bucket[0] < now - settings.rate_limit_window_seconds:
-        bucket.popleft()
-    limit = settings.rate_limit_default
-    if request.method == "POST" and len(bucket) >= limit:
-        return templates.TemplateResponse(
-            request,
-            "error.html",
-            page_context(
-                request,
-                title=translate(browser_language(request, settings.default_language), "error.rate_title"),
-                message=translate(browser_language(request, settings.default_language), "error.rate_message"),
-            ),
-            status_code=429,
-        )
-    bucket.append(now)
-    try:
-        response = await call_next(request)
-    except Exception:
-        logging.getLogger("silent_relay").exception("unhandled_request", extra={"request_id": request_id})
-        raise
+def protected_response(response: Response, request_id: str) -> Response:
     response.headers["X-Request-ID"] = request_id
     response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data:; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -127,6 +96,56 @@ async def protection(request: Request, call_next):
     if settings.hsts_enabled:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
+
+
+def error_response(request: Request, status_code: int, title_key: str, message_key: str) -> Response:
+    language = browser_language(request, settings.default_language)
+    return templates.TemplateResponse(
+        request,
+        "error.html",
+        page_context(
+            request,
+            title=translate(language, title_key),
+            message=translate(language, message_key),
+        ),
+        status_code=status_code,
+    )
+
+
+@app.middleware("http")
+async def protection(request: Request, call_next):
+    request_id = secrets.token_hex(16)
+    if request.method == "POST":
+        policy, subject = policy_for_path(request.url.path, settings)
+        peer = request.client.host if request.client else "unknown"
+        try:
+            with SessionLocal() as db:
+                decision = PersistentRateLimiter(settings).check(
+                    db, policy, peer, subject
+                )
+                db.commit()
+        except SQLAlchemyError:
+            logger.exception(
+                "rate_limit_store_unavailable", extra={"request_id": request_id}
+            )
+            return protected_response(
+                error_response(
+                    request, 503, "error.unavailable_title", "error.unavailable_message"
+                ),
+                request_id,
+            )
+        if not decision.allowed:
+            response = error_response(
+                request, 429, "error.rate_title", "error.rate_message"
+            )
+            response.headers["Retry-After"] = str(decision.retry_after_seconds)
+            return protected_response(response, request_id)
+    try:
+        response = await call_next(request)
+    except Exception:
+        logging.getLogger("silent_relay").exception("unhandled_request", extra={"request_id": request_id})
+        raise
+    return protected_response(response, request_id)
 
 
 @app.get("/health/live")

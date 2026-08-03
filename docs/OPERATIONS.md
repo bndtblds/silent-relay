@@ -239,6 +239,41 @@ language. Account owners select one language when creating an account. That
 choice then applies consistently to account pages, trusted-person pages, and
 emails, regardless of later browser settings.
 
+## Understand abuse protection
+
+SilentRelay stores rate-limit counters in SQLite. They survive web restarts and
+are shared by every web process that uses the same database. The database never
+stores a plain client IP address, secret URL or QR access for this purpose.
+Client identifiers and secret-access scopes are stored only as keyed hashes;
+IPv6 client addresses are grouped by `/64`. Expired counters are removed during
+protected requests and by the scheduler.
+
+Only `POST` requests consume a limit. The default limits are:
+
+- five technical-admin or account sign-in attempts per client in 15 minutes;
+- three account-creation attempts per client in one hour;
+- ten contact-confirmation attempts per client and secret access in one hour;
+- ten complete two-step notification attempts per client and QR access in one
+  hour; and
+- 60 other state-changing requests per client per minute.
+
+Installation-wide safety limits supplement the per-client and per-access
+limits. The bucket table is capped at 50,000 current entries and fails closed
+when no new entry can be stored. Every rejected request returns HTTP `429` with
+a `Retry-After` header. If the rate-limit database cannot be used, protected
+requests fail closed with HTTP `503`.
+
+The values can be changed with the `RATE_LIMIT_*` settings shown in
+`.env.example`. Restart `web` after changing them. Increasing a limit should be
+a deliberate operational decision, not a workaround for unexplained traffic.
+Rate limiting reduces automated abuse but does not replace firewalling,
+capacity limits or upstream denial-of-service protection.
+
+In the provided Compose deployment, Caddy is the only public service and
+Uvicorn accepts forwarded client addresses only on the internal application
+network. Do not expose the `web` container directly while trusting arbitrary
+forwarding headers.
+
 ## Check the running system
 
 Change to the installation directory before running Docker commands:

@@ -28,13 +28,6 @@ from app.entitlements import (
 from app.models import Account
 
 
-@pytest.fixture(autouse=True)
-def isolate_rate_limits():
-    main._requests.clear()
-    yield
-    main._requests.clear()
-
-
 def csrf_from(response_text: str) -> str:
     match = re.search(r'name="csrf" value="([^"]+)"', response_text)
     assert match
