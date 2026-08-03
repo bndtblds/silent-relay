@@ -99,6 +99,18 @@ textarea { min-height: 12rem; resize: vertical; }
 .step-list li { padding: 1.2rem; border: 1px solid var(--border); border-radius: .7rem; background: #fff; }
 .step-list li > span, .check-list li > span { display: grid; flex: 0 0 auto; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 800; }
 .step-list p, .check-list p { margin: .25rem 0 0; color: var(--muted); }
+.help-teaser { margin: 2rem 0; color: var(--muted); }
+.help-teaser a { font-weight: 750; }
+.help-steps { list-style: none; padding: 0; margin: 1.5rem 0 2.5rem; }
+.help-steps li { display: flex; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid var(--border); }
+.help-steps li > span { display: grid; flex: 0 0 auto; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 800; }
+.help-steps p { margin: .25rem 0 0; color: var(--muted); }
+.help-example { margin: 2.5rem 0; }
+.help-example h2 { font-size: 1.4rem; }
+.help-example p:last-child { margin-bottom: 0; }
+.help-facts > div { padding: 1.2rem 0; border-top: 1px solid var(--border); }
+.help-facts h3 { margin: 0 0 .4rem; font-size: 1.15rem; }
+.help-facts p, .help-facts ul { margin: .4rem 0; }
 .check-list li { padding: .8rem 0; border-bottom: 1px solid var(--border); }
 .check-list li.done > span { background: #287c3c; }
 

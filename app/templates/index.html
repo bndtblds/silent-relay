@@ -10,5 +10,6 @@
   <li><span>2</span><div><strong>{{ t("home.step2_title") }}</strong><p>{{ t("home.step2") }}</p></div></li>
   <li><span>3</span><div><strong>{{ t("home.step3_title") }}</strong><p>{{ t("home.step3") }}</p></div></li>
 </ol></section>
-<aside class="notice"><strong>{{ t("home.important") }}</strong> {{ t("home.not_emergency") }}</aside>
+<p class="help-teaser">{{ t("home.help_text") }} <a href="/help?lang={{ language }}">{{ t("home.help_link") }}</a></p>
+<aside class="notice"><strong>{{ t("help.emergency_title") }}</strong> {{ t("help.emergency_text") }}</aside>
 {% endblock %}

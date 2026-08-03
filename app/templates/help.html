@@ -1,0 +1,41 @@
+{% extends "base.html" %}{% block title %}{{ t("help.title") }}{% endblock %}{% block content %}
+<article class="narrow">
+  <header class="page-header"><div><span class="eyebrow">{{ t("help.eyebrow") }}</span><h1>{{ t("help.heading") }}</h1><p class="lead">{{ t("help.lead") }}</p></div></header>
+
+  <section aria-labelledby="help-process"><h2 id="help-process">{{ t("help.process_title") }}</h2><ol class="help-steps">
+    <li><span>1</span><div><strong>{{ t("help.process_group_title") }}</strong><p>{{ t("help.process_group") }}</p></div></li>
+    <li><span>2</span><div><strong>{{ t("help.process_access_title") }}</strong><p>{{ t("help.process_access") }}</p><p>{{ t("help.roles_overlap") }}</p></div></li>
+    <li><span>3</span><div><strong>{{ t("help.process_message_title") }}</strong><p>{{ t("help.process_message") }}</p></div></li>
+  </ol></section>
+
+  <section class="panel help-example" aria-labelledby="help-example"><h2 id="help-example">{{ t("help.example_title") }}</h2><p>{{ t("help.example_intro") }}</p><ol>
+    <li>{{ t("help.example_step1") }}</li>
+    <li>{{ t("help.example_step2") }}</li>
+    <li>{{ t("help.example_step3") }}</li>
+    <li>{{ t("help.example_step4") }}</li>
+  </ol><p><strong>{{ t("help.example_privacy") }}</strong></p></section>
+
+  <section aria-labelledby="help-use-cases"><h2 id="help-use-cases">{{ t("help.use_cases_title") }}</h2><p>{{ t("help.use_cases_intro") }}</p><ul>
+    <li>{{ t("help.use_case_private") }}</li>
+    <li>{{ t("help.use_case_couples") }}</li>
+    <li>{{ t("help.use_case_poly") }}</li>
+    <li>{{ t("help.use_case_queer") }}</li>
+    <li>{{ t("help.use_case_friends") }}</li>
+    <li>{{ t("help.use_case_families") }}</li>
+  </ul><p>{{ t("help.use_cases_outro") }}</p></section>
+
+  <section aria-labelledby="help-important"><h2 id="help-important">{{ t("help.important_title") }}</h2><div class="help-facts">
+    <div><h3>{{ t("help.qr_title") }}</h3><p>{{ t("help.qr_text") }}</p><p>{{ t("help.qr_warning") }}</p></div>
+    <div><h3>{{ t("help.truth_title") }}</h3><p>{{ t("help.limit_truth") }}</p></div>
+    <div><h3>{{ t("help.privacy_title") }}</h3><p>{{ t("help.privacy_recipients") }}</p><p>{{ t("help.privacy_storage") }}</p><p>{{ t("help.privacy_email") }}</p></div>
+    <div><h3>{{ t("help.limits_title") }}</h3><p>{{ t("help.limits_intro") }}</p><ul>
+      <li>{{ t("help.limit_delivery") }}</li>
+      <li>{{ t("help.limit_emergency") }}</li>
+      <li>{{ t("help.limit_legal") }}</li>
+    </ul></div>
+  </div></section>
+
+  <aside class="notice"><strong>{{ t("help.emergency_title") }}</strong> {{ t("help.emergency_text") }}</aside>
+  <p><a class="button secondary" href="/?lang={{ language }}">{{ t("help.back") }}</a></p>
+</article>
+{% endblock %}

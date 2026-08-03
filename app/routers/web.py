@@ -100,6 +100,14 @@ def index(request: Request, settings: Settings = Depends(get_settings)):
     )
 
 
+@router.get("/help", response_class=HTMLResponse)
+def help_page(request: Request, settings: Settings = Depends(get_settings)):
+    language = browser_language(request, settings.default_language, allow_query=True)
+    return templates.TemplateResponse(
+        request, "help.html", context(request, language)
+    )
+
+
 @router.get("/imprint", response_class=HTMLResponse)
 def imprint(
     request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)

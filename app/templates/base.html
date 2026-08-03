@@ -12,6 +12,6 @@
   <a class="skip-link" href="#main-content">{{ t("site.skip") }}</a>
   <header class="site-header"><a class="brand" href="/" aria-label="{{ t('site.start') }}"><span class="brand-mark" aria-hidden="true">SR</span><span>SilentRelay</span></a><span class="brand-note">{{ t("site.tagline") }}</span></header>
   <main id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
-  <footer class="site-footer"><p>{{ t("site.emergency") }}</p><nav class="footer-nav" aria-label="{{ t('site.footer_nav') }}"><a href="/imprint">{{ t("site.imprint") }}</a><a href="/privacy">{{ t("site.privacy") }}</a><a href="/contact">{{ t("site.contact") }}</a></nav></footer>
+  <footer class="site-footer"><p><strong>{{ t("help.emergency_title") }}</strong> {{ t("help.emergency_text") }}</p><nav class="footer-nav" aria-label="{{ t('site.footer_nav') }}"><a href="/help">{{ t("site.help") }}</a><a href="/imprint">{{ t("site.imprint") }}</a><a href="/privacy">{{ t("site.privacy") }}</a><a href="/contact">{{ t("site.contact") }}</a></nav></footer>
 </body>
 </html>

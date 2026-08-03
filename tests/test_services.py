@@ -503,7 +503,7 @@ def test_delivery_email_uses_account_language(db, settings, cipher):
     provider = SuccessfulProvider()
     DeliveryService(settings, cipher, {"email": provider}).process_due(db)
     assert provider.messages[0][1] == "Confidential notification"
-    assert "A trusted person submitted" in provider.messages[0][2]
+    assert "A trusted contact sent" in provider.messages[0][2]
     assert "Replies are not read and are deleted automatically" in (
         provider.messages[0][2]
     )

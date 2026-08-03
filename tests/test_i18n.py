@@ -28,5 +28,5 @@ def test_product_default_language_is_english():
 def test_language_and_missing_translation_fallback_are_deterministic():
     assert normalize_language("EN-us") == "en"
     assert normalize_language("fr", "en") == "en"
-    assert translate("en", "home.create") == "Set up your own account"
+    assert translate("en", "home.create") == "Create an account"
     assert translate("en", "missing.translation.key") == "missing.translation.key"

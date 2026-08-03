@@ -100,10 +100,23 @@ def test_health_and_security_headers():
 def test_public_html_pages_render():
     with TestClient(app) as client:
         index = client.get("/")
+        help_page = client.get("/help")
         create = client.get("/account/create")
         admin = client.get("/admin/login")
     assert index.status_code == 200
-    assert "Im Ernstfall die richtigen Menschen erreichen" in index.text
+    assert "Im richtigen Moment die richtigen Menschen erreichen" in index.text
+    assert "Zur einfachen Erklärung" in index.text
+    assert "Bei akuter Gefahr:" in index.text
+    assert "Wählen Sie zuerst die örtliche Notrufnummer" in index.text
+    assert "die hinterlegte Benachrichtigungsgruppe zu informieren" not in index.text
+    assert 'href="/help?lang=de"' in index.text
+    assert 'href="/help"' in index.text
+    assert help_page.status_code == 200
+    assert "Was ist SilentRelay?" in help_page.text
+    assert "Die Rollen schließen einander nicht aus" in help_page.text
+    assert "SilentRelay prüft weder die reale Identität" in help_page.text
+    assert "Wer den QR-Code oder Link besitzt" in help_page.text
+    assert "E-Mail-Anbieter und die empfangenden Mailserver" in help_page.text
     assert create.status_code == 200
     assert 'name="csrf"' in create.text
     assert admin.status_code == 200
@@ -113,10 +126,16 @@ def test_public_html_pages_render():
 def test_browser_language_controls_public_and_admin_pages():
     with TestClient(app) as client:
         index = client.get("/", headers={"Accept-Language": "en-GB,en;q=0.9,de;q=0.5"})
+        help_page = client.get("/help", headers={"Accept-Language": "en"})
         create = client.get("/account/create", headers={"Accept-Language": "en"})
         admin_login = client.get("/admin/login", headers={"Accept-Language": "en"})
     assert '<html lang="en">' in index.text
-    assert "Reach the right people when it matters" in index.text
+    assert "Reach the right people at the right time" in index.text
+    assert 'href="/help?lang=en"' in index.text
+    assert '<html lang="en">' in help_page.text
+    assert "What is SilentRelay?" in help_page.text
+    assert "Anyone with the QR code or link" in help_page.text
+    assert "does not provide legal recognition" in help_page.text
     assert "Account language" in create.text
     assert "Admin sign-in" in admin_login.text
 
@@ -134,7 +153,7 @@ def test_unsupported_browser_language_uses_english_fallback():
     finally:
         settings.default_language = previous_language
     assert '<html lang="en">' in index.text
-    assert "Reach the right people when it matters" in index.text
+    assert "Reach the right people at the right time" in index.text
     assert "Admin sign-in" in admin_login.text
 
 
@@ -152,7 +171,7 @@ def test_complete_admin_area_uses_browser_language():
         assert "Technical account overview" in accounts.text
         assert "Configure email delivery" in client.get("/admin/system", headers=headers).text
         public = client.get("/admin/public-content?content_language=en", headers=headers)
-        assert "Imprint, privacy, and contact" in public.text
+        assert "Legal notice, privacy and contact details" in public.text
         assert 'name="language_code" value="en"' in public.text
 
 
@@ -191,7 +210,7 @@ def test_selected_account_language_controls_onboarding():
             "/account/create",
             data={"csrf": hidden_value(create.text, "csrf"), "language_code": "en"},
         )
-        assert "Save your account-owner access now" in created.text
+        assert "Save your account access now" in created.text
         setup_url = html.unescape(
             re.search(r'href="(http://testserver/account/setup/[^"]+)"', created.text).group(1)
         )
