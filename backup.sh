@@ -34,7 +34,7 @@ configure_backup() {
             read -r recipient
             ;;
         *)
-            default_identity="${XDG_CONFIG_HOME:-$HOME/.config}/silent-relay/backup-age.key"
+            default_identity="${XDG_CONFIG_HOME:-$HOME/.config}/silent-relay/backup-age-identity.key"
             printf 'Private age identity file [%s]: ' "$default_identity"
             read -r identity_path
             identity_path=${identity_path:-$default_identity}

@@ -488,7 +488,7 @@ age identity file:
 git clone https://github.com/bndtblds/silent-relay.git /opt/silent-relay
 cd /opt/silent-relay
 apt-get install -y age
-sh restore.sh /path/to/silentrelay-....tar.gz.age /path/to/backup-age.key
+sh restore.sh /path/to/silentrelay-....tar.gz.age /secure/backup-age-identity.key
 ```
 
 The second argument is the private age identity file, not the public `age1...`
@@ -510,7 +510,7 @@ To recover an existing server deliberately, use `--replace`:
 
 ```sh
 cd /opt/silent-relay
-sh restore.sh --replace /path/to/silentrelay-....tar.gz.age /path/to/backup-age.key
+sh restore.sh --replace /path/to/silentrelay-....tar.gz.age /secure/backup-age-identity.key
 ```
 
 This path requires the exact word `REPLACE`. Before changing current data it
