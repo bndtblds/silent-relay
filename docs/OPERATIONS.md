@@ -419,51 +419,106 @@ option deletes persistent data.
 
 ## Back up SilentRelay
 
-SilentRelay does not yet include a guided backup and restore script. Until one
-is available, the simplest complete backup is an encrypted snapshot or backup
-of the entire server.
+SilentRelay creates encrypted, data-only backups. They contain the application
+database volume and the matching `.env`; they do not contain source code,
+Docker images, logs, Caddy certificates, or the private age identity file.
+Install `age` once on Debian:
 
-For a consistent snapshot, stop SilentRelay first:
+```sh
+apt-get update
+apt-get install -y age
+```
+
+Run the first backup interactively:
 
 ```sh
 cd /opt/silent-relay
-docker compose stop
+sh backup.sh
 ```
 
-Create the server snapshot or backup with the tools supplied by the hosting
-provider. Afterwards, start SilentRelay again:
+`age` uses two related but different values:
 
-```sh
-docker compose up -d
-docker compose ps
+| Value | Purpose | Storage |
+| --- | --- | --- |
+| Public age recipient, beginning with `age1` | Encrypts backups | `.backup.conf` |
+| Private age identity file | Decrypts and restores backups | Separate offline location |
+
+The guide accepts an existing public age recipient or creates a new age key
+pair and tests it. When it creates a key pair, immediately copy the private age
+identity file to a separate offline location. The private identity is never
+stored in `.backup.conf` or in a backup. Losing it makes every backup encrypted
+for its corresponding public recipient unrecoverable.
+
+The generated `.backup.conf` stores only the public age recipient, backup
+directory, installation identifier, and retention count. The public recipient
+can encrypt but cannot decrypt a backup. Both manual and scheduled runs use
+this file. By default, only the seven newest successful backups are retained.
+Change `KEEP_BACKUPS` deliberately if a different count is required. Cleanup
+affects only completed archives belonging to this installation and happens
+only after a new backup succeeds.
+
+Web and scheduler are stopped briefly so SQLite and its WAL files are
+consistent. Services that were not running before the backup are not started
+afterwards. The unencrypted archive is streamed directly from the maintenance
+container into `age`; it is not stored on the host.
+
+For a daily backup at 03:15, add a root cron entry:
+
+```cron
+15 3 * * * cd /opt/silent-relay && sh backup.sh >>/var/log/silentrelay-backup.log 2>&1
 ```
 
-Also keep an encrypted, access-controlled backup of
-`/opt/silent-relay/.env` in a separate safe location. This file contains the
-keys needed to read encrypted database fields. A database without its matching
-`.env` file is not a usable backup.
+Cron never opens the setup dialog. A missing or invalid configuration produces
+a non-zero exit status. Monitor that status or the log. A backup kept only on
+the SilentRelay server does not protect against loss of that server. Copy the
+encrypted archive to a separate, access-controlled system.
 
 Do not consider a backup complete until its restoration has been tested. Avoid
-copying individual files out of a running Docker data volume: the resulting
-SQLite copy may be inconsistent.
+copying individual files from a running Docker volume.
 
 ## Restore SilentRelay
 
-Restoring a complete server snapshot is currently the recommended method.
-Follow the hosting provider's restore procedure, then verify:
+Restore is intentionally limited to a fresh installation. It refuses an
+existing `.env` or non-empty application data volume, so it cannot silently
+replace a running installation. Obtain the software from the repository, then
+run the guided restore with the encrypted archive and separately stored private
+age identity file:
+
+```sh
+git clone https://github.com/bndtblds/silent-relay.git /opt/silent-relay
+cd /opt/silent-relay
+apt-get install -y age
+sh restore.sh /path/to/silentrelay-....tar.gz.age /path/to/backup-age.key
+```
+
+The second argument is the private age identity file, not the public `age1...`
+recipient from `.backup.conf`. The tool requires the word `RESTORE`,
+authenticates and validates the complete
+archive in an isolated container area, verifies every checksum and path, and
+only then writes `.env` and the application volume. It runs the database
+migrations and starts the deployment afterwards. Caddy obtains fresh
+certificates on the target server.
+
+For a server migration, create one final manual backup after stopping use of
+the old installation. Transfer the encrypted archive and private age identity
+file through separate protected paths, restore on the new server, verify
+`/health/ready`, sign in, and send a test notification. Change DNS only after
+those checks pass. Do not run both installations concurrently against the same
+technical mailbox.
+
+To recover an existing server deliberately, use `--replace`:
 
 ```sh
 cd /opt/silent-relay
-docker compose up -d
-docker compose ps
-docker compose logs --tail=100 caddy web scheduler
+sh restore.sh --replace /path/to/silentrelay-....tar.gz.age /path/to/backup-age.key
 ```
 
-Open the public website, check `/health/ready`, sign in, and send a test
-notification through a dedicated test account.
-
-Moving individual Docker volumes to a new server is an advanced manual
-procedure. SilentRelay does not yet provide a guided restore tool for it.
+This path requires the exact word `REPLACE`. Before changing current data it
+creates a mandatory new encrypted safety backup with the public age recipient
+configured in `.backup.conf`.
+It then stops web and scheduler, validates the selected backup, replaces only
+`.env` and `silentrelay-data`, migrates the database, and starts the deployment.
+If the safety backup fails, replacement does not begin.
 
 ## If the website does not open
 

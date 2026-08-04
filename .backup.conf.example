@@ -1,0 +1,6 @@
+# Copy to .backup.conf. The guided first backup can create this file.
+BACKUP_DIRECTORY=/var/backups/silent-relay
+KEEP_BACKUPS=7
+# Public age recipient used only to encrypt backups. It is safe to store here.
+AGE_RECIPIENT=age1example
+INSTALLATION_ID=replace-with-a-uuid

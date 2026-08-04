@@ -1,5 +1,7 @@
 docs.local/
 .env
+.backup.conf
+silentrelay-backup-age.key
 .venv/
 __pycache__/
 *.py[cod]

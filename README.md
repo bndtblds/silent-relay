@@ -132,10 +132,14 @@ docker compose logs caddy web scheduler
 docker compose restart caddy web scheduler
 ```
 
-Before an update, create a verified backup of both the database volume and the
-secrets. Then build or pull the new version, run the migration service, and
-restart the application. See [Operations](docs/OPERATIONS.md) for backup,
-restore, update, health-check, and security guidance.
+Before an update, run `sh backup.sh`. It creates an `age`-encrypted backup of
+the database volume together with the matching private application
+configuration, retains seven successful backups by default, and can also be
+scheduled with cron. `sh restore.sh` restores such a backup into a fresh
+installation or a new server. See [Operations](docs/OPERATIONS.md) for key
+setup, the distinction between the public encryption recipient and private
+decryption identity, off-server storage, restore testing, migration, update,
+and security guidance.
 
 ## Documentation
 

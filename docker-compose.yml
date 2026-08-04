@@ -9,6 +9,26 @@ services:
     profiles:
       - setup
     restart: "no"
+  backup:
+    build: .
+    entrypoint: ["python", "-m", "app.backup_restore"]
+    user: "0:0"
+    volumes:
+      - ./:/config:ro
+      - silentrelay-data:/data:ro
+    profiles:
+      - maintenance
+    restart: "no"
+  restore:
+    build: .
+    entrypoint: ["python", "-m", "app.backup_restore"]
+    user: "0:0"
+    volumes:
+      - ./:/config
+      - silentrelay-data:/data
+    profiles:
+      - maintenance
+    restart: "no"
   caddy:
     image: caddy:2-alpine
     env_file:
