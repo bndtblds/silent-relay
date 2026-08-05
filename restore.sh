@@ -9,6 +9,21 @@ fail() {
     exit 2
 }
 
+positive_number() {
+    name=$1
+    value=$2
+    case "$value" in *[!0-9]*|'') fail "$name must be a positive number";; esac
+    [ "$value" -ge 1 ] || fail "$name must be at least 1"
+}
+
+max_file_size=${SILENTRELAY_RESTORE_MAX_FILE_BYTES:-2147483648}
+max_total_size=${SILENTRELAY_RESTORE_MAX_TOTAL_BYTES:-10737418240}
+max_file_count=${SILENTRELAY_RESTORE_MAX_FILE_COUNT:-10000}
+positive_number SILENTRELAY_RESTORE_MAX_FILE_BYTES "$max_file_size"
+positive_number SILENTRELAY_RESTORE_MAX_TOTAL_BYTES "$max_total_size"
+positive_number SILENTRELAY_RESTORE_MAX_FILE_COUNT "$max_file_count"
+restore_limits="--max-file-size $max_file_size --max-total-size $max_total_size --max-file-count $max_file_count"
+
 replace_existing=false
 if [ "${1:-}" = "--replace" ]; then
     replace_existing=true
@@ -30,6 +45,8 @@ docker compose --profile maintenance build backup restore
 if [ "$replace_existing" = true ]; then
     [ -e .env ] || fail "--replace requires an existing installation"
     printf '%s\n' "The current installation will first be backed up, then replaced."
+    printf '%s\n' "Replacement is not atomic: a host failure while files are being replaced can leave an incomplete installation."
+    printf '%s\n' "If that happens, run this restore again or restore the mandatory safety backup."
     printf '%s' "Type REPLACE to continue: "
     expected_confirmation=REPLACE
 else
@@ -62,7 +79,7 @@ age -d -i "$identity_file" -o - "$backup_file" > "$fifo" &
 age_pid=$!
 set +e
 backup_commit=$(docker compose --profile maintenance run --rm --no-deps -T backup inspect \
-    --field git_commit < "$fifo")
+    --field git_commit $restore_limits < "$fifo")
 inspect_status=$?
 wait "$age_pid"
 age_status=$?
@@ -80,7 +97,7 @@ set +e
 replace_argument=""
 [ "$replace_existing" = false ] || replace_argument="--replace-existing"
 manifest=$(docker compose --profile maintenance run --rm --no-deps -T restore restore \
-    --data-dir /data --env-file /config/.env $replace_argument < "$fifo")
+    --data-dir /data --env-file /config/.env $replace_argument $restore_limits < "$fifo")
 restore_status=$?
 wait "$age_pid"
 age_status=$?

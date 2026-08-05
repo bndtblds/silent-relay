@@ -45,9 +45,13 @@ def test_archive_contains_only_manifest_environment_and_data(tmp_path: Path) -> 
         "data/app.db",
         "data/nested/payload",
     ]
-    assert manifest["format_version"] == 1
+    assert manifest["format_version"] == 2
     assert manifest["git_commit"] == "a" * 40
     assert set(manifest["files"]) == set(names[1:])
+    assert manifest["files"]["data/app.db"] == {
+        "sha256": "3549b0028b75d981cdda2e573e9cb49dedc200185876df299f912b79f69dabd8",
+        "size": 8,
+    }
 
 
 def test_restore_validates_and_restores_data_and_environment(tmp_path: Path) -> None:
@@ -139,3 +143,74 @@ def test_restore_rejects_unsafe_archive_member(tmp_path: Path) -> None:
             data_dir=tmp_path / "target-data",
             env_file=tmp_path / "target.env",
         )
+
+
+@pytest.mark.parametrize(
+    ("limits", "message"),
+    [
+        ({"max_file_size": 7}, "file exceeds"),
+        ({"max_total_size": 20}, "total restore size"),
+        ({"max_file_count": 2}, "too many files"),
+    ],
+)
+def test_restore_enforces_resource_limits(
+    tmp_path: Path, limits: dict[str, int], message: str
+) -> None:
+    archive = create_test_archive(tmp_path)
+
+    with pytest.raises(ValueError, match=message):
+        restore_archive(
+            BytesIO(archive),
+            data_dir=tmp_path / "target-data",
+            env_file=tmp_path / "target.env",
+            **limits,
+        )
+
+
+def test_restore_rejects_size_that_differs_from_manifest(tmp_path: Path) -> None:
+    archive = create_test_archive(tmp_path)
+    rebuilt = BytesIO()
+    with tarfile.open(fileobj=BytesIO(archive), mode="r:gz") as original:
+        with tarfile.open(fileobj=rebuilt, mode="w:gz") as changed:
+            for member in original:
+                content = original.extractfile(member).read()  # type: ignore[union-attr]
+                if member.name == "data/app.db":
+                    content += b"x"
+                    member.size = len(content)
+                changed.addfile(member, BytesIO(content))
+
+    with pytest.raises(ValueError, match="size does not match"):
+        restore_archive(
+            BytesIO(rebuilt.getvalue()),
+            data_dir=tmp_path / "target-data",
+            env_file=tmp_path / "target.env",
+        )
+
+
+def test_restore_supports_legacy_format_one_archive(tmp_path: Path) -> None:
+    content = b"legacy"
+    output = BytesIO()
+    with tarfile.open(fileobj=output, mode="w:gz") as archive:
+        manifest = {
+            "format_version": 1,
+            "files": {
+                "config/.env": "91d6a3d55e9fea7911c537afae6607c77fa8bc0f3a76c375e104ac5a8cfa84db",
+                "data/app.db": "c49fea7425fa7f8699897a97c159c6690267d9003bb78c53fafa8fc15c325d84",
+            },
+        }
+        raw = json.dumps(manifest).encode()
+        info = tarfile.TarInfo("manifest.json")
+        info.size = len(raw)
+        archive.addfile(info, BytesIO(raw))
+        for name, value in (("config/.env", b"A=1\n"), ("data/app.db", content)):
+            info = tarfile.TarInfo(name)
+            info.size = len(value)
+            archive.addfile(info, BytesIO(value))
+
+    restore_archive(
+        BytesIO(output.getvalue()),
+        data_dir=tmp_path / "target-data",
+        env_file=tmp_path / "target.env",
+    )
+
+    assert (tmp_path / "target-data" / "app.db").read_bytes() == content

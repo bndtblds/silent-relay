@@ -495,9 +495,25 @@ The second argument is the private age identity file, not the public `age1...`
 recipient from `.backup.conf`. The tool requires the word `RESTORE`,
 authenticates and validates the complete
 archive in an isolated container area, verifies every checksum and path, and
-only then writes `.env` and the application volume. It runs the database
+enforces safe default limits of 2 GiB per file, 10 GiB in total, and 10,000
+files. It also verifies the declared file sizes and available storage. Only
+then does it write `.env` and the application volume. It runs the database
 migrations and starts the deployment afterwards. Caddy obtains fresh
 certificates on the target server.
+
+Larger installations require an explicit limit override for that restore. Set
+one or more variables only after checking the expected backup size and free
+space, for example:
+
+```sh
+SILENTRELAY_RESTORE_MAX_FILE_BYTES=4294967296 \
+SILENTRELAY_RESTORE_MAX_TOTAL_BYTES=21474836480 \
+SILENTRELAY_RESTORE_MAX_FILE_COUNT=20000 \
+sh restore.sh /path/to/silentrelay-....tar.gz.age /secure/backup-age-identity.key
+```
+
+The values are byte and file-count limits. Raising them reduces protection
+against an unexpectedly large or maliciously substituted encrypted archive.
 
 For a server migration, create one final manual backup after stopping use of
 the old installation. Transfer the encrypted archive and private age identity
@@ -519,6 +535,12 @@ configured in `.backup.conf`.
 It then stops web and scheduler, validates the selected backup, replaces only
 `.env` and `silentrelay-data`, migrates the database, and starts the deployment.
 If the safety backup fails, replacement does not begin.
+
+Replacement is not atomic. After complete validation, SilentRelay removes the
+current files and copies the staged files into place. A host or storage failure
+during this interval can leave an incomplete installation. Correct this by
+running the selected restore again. If that archive is no longer usable,
+restore the mandatory safety backup created immediately beforehand.
 
 ## If the website does not open
 

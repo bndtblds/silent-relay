@@ -54,6 +54,19 @@ uv run pytest
 The tests create isolated application settings and databases. They do not need
 a production `.env` file or a working SMTP account.
 
+The real backup and restore workflow is a separate Docker integration test. It
+requires Docker Compose, `age`, `age-keygen`, Git, and a POSIX shell. It creates
+isolated Compose projects and volumes and removes them when finished:
+
+```sh
+SILENTRELAY_RUN_DOCKER_INTEGRATION=1 uv run pytest tests/integration/test_backup_restore_docker.py
+```
+
+This test covers the complete shell paths, service stop and restart, retention,
+encryption failure, selected-archive protection, Git compatibility rejection,
+restore, migration, readiness, and data comparison. Do not include it in every
+fast unit-test run.
+
 Run one test file:
 
 ```sh

@@ -113,7 +113,10 @@ Caddy obtains and renews HTTPS certificates automatically. Additional domains
 are redirected to the primary domain, which SilentRelay uses for all generated
 links and QR codes. Every entered domain must point to the server before setup.
 The setup never stores the administrator password in clear text and never
-overwrites an existing `.env` file. Keep `.env` separate from database backups.
+overwrites an existing `.env` file. Never place `.env` beside an ordinary
+database copy in plaintext. SilentRelay's guided backup deliberately includes
+the matching `.env` and database together inside one authenticated,
+`age`-encrypted archive because both are required for a usable restore.
 
 Manual configuration and advanced deployment options are documented in
 [Operations](docs/OPERATIONS.md).
