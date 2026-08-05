@@ -35,7 +35,7 @@ from app.providers.email import EmailNotificationProvider
 from app.public_markdown import render_public_markdown
 from app.public_site import load_public_site_content_with_fallback
 from app.security.core import (
-    FieldCipher, SessionManager, generate_token, hash_password, hash_pin,
+    FieldCipher, SessionManager, generate_token, hash_pin,
     keyed_hash, verify_password, verify_pin,
 )
 from app.services import AccountService, AuthenticationService, DeliveryService, ManagementService, NotificationService
@@ -842,10 +842,13 @@ def rotate_account_owner(
     csrf_guard(request, session, settings, csrf)
     token = AuthenticationService(settings).rotate_account_owner_token(db, account.id)
     url = f"{settings.app_base_url}/account/{token}"
-    return templates.TemplateResponse(request, "token.html", context(
+    response = templates.TemplateResponse(request, "token.html", context(
         request, account.language_code, title=translate(account.language_code, "token.owner_title"),
-        url=url, qr=qr_data(url), recovery=True
+        url=url, qr=qr_data(url), recovery=True, owner_access=True
     ))
+    response.delete_cookie("sr_account_owner")
+    response.delete_cookie("sr_account_owner_csrf")
+    return response
 
 
 @router.post("/account/password/change")
@@ -855,12 +858,14 @@ def change_password(
     db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
 ):
     csrf_guard(request, session, settings, csrf)
-    if not verify_password(account.credential.password_hash, current_password):
+    if not AuthenticationService(settings).change_password(
+        db, account.id, current_password, new_password
+    ):
         raise HTTPException(401, translate(account.language_code, "error.login"))
-    account.credential.password_hash = hash_password(new_password)
-    account.credential.password_changed_at = datetime.utcnow()
-    db.commit()
-    return RedirectResponse("/account/dashboard", 303)
+    response = RedirectResponse("/", 303)
+    response.delete_cookie("sr_account_owner")
+    response.delete_cookie("sr_account_owner_csrf")
+    return response
 
 
 @router.post("/account/delete")

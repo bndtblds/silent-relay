@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -201,6 +202,82 @@ def test_account_language_is_persisted_and_can_be_changed():
 
     with Session(engine) as db:
         assert db.get(Account, account_id).language_code == "en"
+
+
+@pytest.mark.parametrize("credential_change", ["password", "owner_link"])
+def test_owner_credential_change_revokes_all_browser_sessions(credential_change):
+    settings = get_settings()
+    with Session(engine, expire_on_commit=False) as db:
+        accounts = AccountService(
+            settings, FieldCipher(settings.field_encryption_key)
+        )
+        account, owner_token, setup_token = accounts.create(db)
+        _, verification = accounts.setup(
+            db,
+            setup_token,
+            "correct horse battery staple",
+            "owner@example.org",
+        )
+        accounts.verify_contact(db, verification)
+
+    owner_path = f"/account/{owner_token}"
+    with TestClient(app) as first, TestClient(app) as second:
+        for client in (first, second):
+            login = client.post(
+                f"{owner_path}/login",
+                data={"password": "correct horse battery staple"},
+                follow_redirects=True,
+            )
+            assert login.status_code == 200
+            assert "sr_account_owner" in client.cookies
+
+        csrf = hidden_value(first.get("/account/dashboard").text, "csrf")
+        if credential_change == "password":
+            changed = first.post(
+                "/account/password/change",
+                data={
+                    "csrf": csrf,
+                    "current_password": "correct horse battery staple",
+                    "new_password": "new correct horse battery staple",
+                },
+                follow_redirects=False,
+            )
+            assert changed.status_code == 303
+            assert changed.headers["location"] == "/"
+            new_owner_path = owner_path
+            new_password = "new correct horse battery staple"
+        else:
+            changed = first.post(
+                "/account/token/rotate",
+                data={"csrf": csrf},
+                follow_redirects=False,
+            )
+            assert changed.status_code == 200
+            new_owner_url = html.unescape(
+                re.search(
+                    r'<p class="secret" id="personal-access-link">([^<]+)</p>',
+                    changed.text,
+                ).group(1)
+            )
+            new_owner_path = new_owner_url.removeprefix("http://testserver")
+            new_password = "correct horse battery staple"
+            assert "alle aktiven Kontoinhaber-Sitzungen" in changed.text
+            assert "Mit neuem Zugang anmelden" in changed.text
+            assert first.get(owner_path).status_code == 404
+
+        assert "sr_account_owner" not in first.cookies
+        assert "sr_account_owner_csrf" not in first.cookies
+        assert second.get(
+            "/account/dashboard", follow_redirects=False
+        ).status_code == 303
+
+        signed_in_again = first.post(
+            f"{new_owner_path}/login",
+            data={"password": new_password},
+            follow_redirects=True,
+        )
+        assert signed_in_again.status_code == 200
+        assert "Kontoverwaltung" in signed_in_again.text
 
 
 def test_selected_account_language_controls_onboarding():

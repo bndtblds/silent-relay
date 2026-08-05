@@ -130,6 +130,13 @@ class SessionManager:
                 ServerSession.id_hash == keyed_hash(raw_id, self.settings.session_secret)
             ))
 
+    def revoke_account_owner_sessions(self, db: Session, account_id: str) -> int:
+        result = db.execute(delete(ServerSession).where(
+            ServerSession.kind == "account_owner",
+            ServerSession.account_id == account_id,
+        ))
+        return result.rowcount or 0
+
     def purge_expired(self, db: Session) -> int:
         result = db.execute(delete(ServerSession).where(ServerSession.expires_at <= datetime.utcnow()))
         return result.rowcount or 0

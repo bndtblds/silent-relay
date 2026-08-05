@@ -18,7 +18,10 @@ from app.models import (
     TrustedPersonToken,
 )
 from app.providers.base import NotificationProvider
-from app.security.core import FieldCipher, fingerprint, generate_token, hash_password, keyed_hash, verify_password
+from app.security.core import (
+    FieldCipher, SessionManager, fingerprint, generate_token, hash_password,
+    keyed_hash, verify_password,
+)
 
 
 def audit(db: Session, event: str, account_id: str | None = None, **metadata: object) -> None:
@@ -264,9 +267,23 @@ class AuthenticationService:
             raise LookupError
         token = generate_token()
         credential.account_owner_token_hash = keyed_hash(token, self.settings.token_hmac_key)
+        SessionManager(self.settings).revoke_account_owner_sessions(db, account_id)
         audit(db, "account_owner_token_rotated", account_id)
         db.commit()
         return token
+
+    def change_password(
+        self, db: Session, account_id: str, current_password: str, new_password: str
+    ) -> bool:
+        credential = db.get(AccountOwnerCredential, account_id)
+        if not credential or not verify_password(credential.password_hash, current_password):
+            return False
+        credential.password_hash = hash_password(new_password)
+        credential.password_changed_at = datetime.utcnow()
+        SessionManager(self.settings).revoke_account_owner_sessions(db, account_id)
+        audit(db, "account_owner_password_changed", account_id)
+        db.commit()
+        return True
 
 
 class ManagementService:

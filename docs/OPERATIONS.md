@@ -568,6 +568,10 @@ SilentRelay version 1 does not provide password or account-owner access
 recovery. Keep the printed account-owner access and its password securely and
 separately.
 
+Changing the account password or replacing the account-owner access link
+immediately signs out every active account-owner browser session for that
+account. Sign in again with the new password or new access link.
+
 The field-encryption key cannot currently be rotated through the administration
 area or a supplied maintenance command. Do not replace keys in `.env` on an
 existing installation: doing so makes encrypted data unreadable. Restore the

@@ -16,7 +16,8 @@ from app.models import (
 from app.providers.base import DeliveryResult
 from app.security.core import SessionManager, hash_pin, keyed_hash
 from app.services import (
-    AccountService, DeliveryService, LifecycleService, ManagementService, NotificationService,
+    AccountService, AuthenticationService, DeliveryService, LifecycleService,
+    ManagementService, NotificationService,
 )
 
 
@@ -82,6 +83,80 @@ def test_account_creation_stores_no_clear_tokens(db, settings, cipher):
     assert uuid.UUID(account.id).version == 7
     assert "account_owner_credentials" in db.get_bind().dialect.get_table_names(db.connection())
     assert "admin_credentials" not in db.get_bind().dialect.get_table_names(db.connection())
+
+
+def owner_account_with_token(db, settings, cipher, email="owner@example.org"):
+    accounts = AccountService(settings, cipher)
+    account, owner_token, setup_token = accounts.create(db)
+    _, verification = accounts.setup(
+        db, setup_token, "correct horse battery staple", email
+    )
+    accounts.verify_contact(db, verification)
+    return account, owner_token
+
+
+def account_sessions(db, settings, account_id):
+    manager = SessionManager(settings)
+    first, _ = manager.create(db, "account_owner", account_id)
+    second, _ = manager.create(db, "account_owner", account_id)
+    public, _ = manager.create(db, "public", account_id)
+    db.commit()
+    return first, second, public
+
+
+def test_password_change_revokes_only_affected_account_owner_sessions(
+    db, settings, cipher
+):
+    account, owner_token = owner_account_with_token(db, settings, cipher)
+    other, _ = owner_account_with_token(
+        db, settings, cipher, "other-owner@example.org"
+    )
+    first, second, public = account_sessions(db, settings, account.id)
+    other_session, _ = SessionManager(settings).create(
+        db, "account_owner", other.id
+    )
+    db.commit()
+
+    service = AuthenticationService(settings)
+    assert service.change_password(
+        db,
+        account.id,
+        "correct horse battery staple",
+        "new correct horse battery staple",
+    )
+
+    manager = SessionManager(settings)
+    assert manager.resolve(db, first, "account_owner") is None
+    assert manager.resolve(db, second, "account_owner") is None
+    assert manager.resolve(db, public, "public") is not None
+    assert manager.resolve(db, other_session, "account_owner") is not None
+    assert service.login(db, owner_token, "correct horse battery staple") is None
+    assert service.login(db, owner_token, "new correct horse battery staple") == account
+
+
+def test_owner_link_rotation_revokes_only_affected_account_owner_sessions(
+    db, settings, cipher
+):
+    account, old_token = owner_account_with_token(db, settings, cipher)
+    other, _ = owner_account_with_token(
+        db, settings, cipher, "other-owner@example.org"
+    )
+    first, second, public = account_sessions(db, settings, account.id)
+    other_session, _ = SessionManager(settings).create(
+        db, "account_owner", other.id
+    )
+    db.commit()
+
+    service = AuthenticationService(settings)
+    new_token = service.rotate_account_owner_token(db, account.id)
+
+    manager = SessionManager(settings)
+    assert manager.resolve(db, first, "account_owner") is None
+    assert manager.resolve(db, second, "account_owner") is None
+    assert manager.resolve(db, public, "public") is not None
+    assert manager.resolve(db, other_session, "account_owner") is not None
+    assert service.login(db, old_token, "correct horse battery staple") is None
+    assert service.login(db, new_token, "correct horse battery staple") == account
 
 
 def test_review_days_are_sorted_and_deduplicated(db, settings, cipher):
