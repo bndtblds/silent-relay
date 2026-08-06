@@ -13,6 +13,17 @@
 {% if result == "ndr_disabled" %}<p class="success-message">Die automatische Verarbeitung eingehender Nachrichten wurde deaktiviert.</p>{% endif %}
 {% if result == "ndr_connection_ok" %}<p class="success-message">Die verschlüsselte IMAP-Verbindung zum technischen Postfach funktioniert. Es wurden keine Nachrichten gelesen oder gelöscht.</p>{% endif %}
 {% if result == "ndr_connection_failed" %}<p class="error">Die verschlüsselte IMAP-Verbindung oder Anmeldung ist fehlgeschlagen.</p>{% endif %}
+{% if result == "delay_saved" %}<p class="success-message">Die Wartezeit für neue Meldungen wurde gespeichert.</p>{% endif %}
+{% if result == "delay_invalid" %}<p class="error">Die Wartezeit muss zwischen 0 und {{ max_notification_delay_minutes }} Minuten liegen.</p>{% endif %}
+
+<section class="panel"><h2>Wartezeit und Widerruf</h2>
+  <p>Neue Meldungen bleiben während dieser Wartezeit in der Warteschlange und können von der Vertrauensperson widerrufen werden. Die Änderung gilt nicht für bereits eingereichte Meldungen. Bei 0 Minuten beginnt die Zustellung ohne zugesichertes Widerrufsfenster.</p>
+  <form class="compact-form" method="post" action="/admin/system/notification-delay">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Wartezeit in Minuten<input type="number" name="minutes" min="0" max="{{ max_notification_delay_minutes }}" value="{{ notification_delay_minutes }}" required></label>
+    <button>Wartezeit speichern</button>
+  </form>
+</section>
 
 <section class="panel"><h2>Server und Absender</h2>
   <p>Die Daten erhalten Sie von Ihrem E-Mail-Anbieter oder Serveradministrator. Sie gelten für alle SilentRelay-Konten. Zugangsdaten werden verschlüsselt gespeichert und das Passwort wird niemals erneut angezeigt.</p>

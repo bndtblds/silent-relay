@@ -24,7 +24,7 @@ from app.entitlements import (
     registration_policy,
 )
 from app.i18n import (
-    LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, email_body, format_date,
+    LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, email_body, format_date, format_datetime,
     normalize_language, translate,
 )
 from app.models import (
@@ -40,6 +40,7 @@ from app.security.core import (
 )
 from app.services import AccountService, AuthenticationService, DeliveryService, ManagementService, NotificationService
 from app.smtp_config import load_email_provider
+from app.system_config import notification_delay_minutes
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -918,11 +919,19 @@ def notify_form(token: str, request: Request, db: Session = Depends(get_db), set
         )
     if not service.eligible_contacts(db, person):
         raise HTTPException(404)
+    pending = [
+        {
+            "id": notification.id,
+            "release_at": format_datetime(notification.release_at, account.language_code),
+        }
+        for notification in service.pending_for_person(db, person.id)
+    ]
     db.commit()
     return templates.TemplateResponse(
         request, "notify.html", context(
             request, account.language_code, token=token,
             csrf=request.cookies.get("sr_trusted_person_csrf", ""),
+            pending=pending,
         )
     )
 
@@ -1040,7 +1049,10 @@ def notify_stage(
         )
     return templates.TemplateResponse(
         request, "confirm.html",
-        context(request, language, token=token, submission=submission, message=message, csrf=csrf)
+        context(
+            request, language, token=token, submission=submission, message=message,
+            csrf=csrf, delay_minutes=notification_delay_minutes(db),
+        )
     )
 
 
@@ -1055,13 +1067,29 @@ def notify_confirm(
         raise HTTPException(404)
     trusted_csrf_guard(request, db, settings, person.id, csrf)
     try:
-        service.accept(db, submission)
+        notification = service.accept(db, submission)
     except LookupError:
         account = db.get(Account, person.account_id)
         raise HTTPException(409, translate(account.language_code, "error.submission"))
     cipher = FieldCipher(settings.field_encryption_key)
     DeliveryService(settings, cipher, {"email": load_email_provider(db, settings, cipher)}).process_due(db)
+    if notification.release_at > datetime.utcnow():
+        return RedirectResponse(f"/notify/{token}?queued={notification.id}", 303)
     return RedirectResponse("/notification/success", 303)
+
+
+@router.post("/notify/{token}/notifications/{notification_id}/cancel")
+def cancel_notification(
+    token: str, notification_id: str, request: Request, csrf: str = Form(...),
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+):
+    service = NotificationService(settings, FieldCipher(settings.field_encryption_key))
+    person = service.resolve_person(db, token)
+    if not person:
+        raise HTTPException(404)
+    trusted_csrf_guard(request, db, settings, person.id, csrf)
+    result = "cancelled" if service.cancel(db, person.id, notification_id) else "cancel_unavailable"
+    return RedirectResponse(f"/notify/{token}?result={result}", 303)
 
 
 @router.get("/notification/success", response_class=HTMLResponse)

@@ -2,6 +2,7 @@
 <div class="narrow">
   <div class="progress compact" aria-label="{{ t('confirm.progress') }}"><span>✓</span><span class="active">2</span></div>
   <span class="eyebrow">{{ t("confirm.eyebrow") }}</span><h1>{{ t("confirm.heading") }}</h1><p>{{ t("confirm.intro") }}</p>
+  <div class="warning"><strong>{{ t("confirm.serious_heading") }}</strong><p>{{ t("confirm.serious_text") }}</p><p>{{ t("confirm.delay", minutes=delay_minutes) if delay_minutes else t("confirm.no_delay") }}</p></div>
   <div class="message" aria-label="{{ t('confirm.message') }}">{{ message }}</div>
   <div class="screen-actions"><a class="button secondary" href="/notify/{{ token }}">{{ t("confirm.back") }}</a><form method="post" action="/notify/{{ token }}/confirm"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="submission" value="{{ submission }}"><button class="button-large">{{ t("confirm.send") }}</button></form></div>
 </div>

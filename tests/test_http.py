@@ -21,6 +21,7 @@ from app.models import (
     Partner,
     PublicSiteContent,
     SmtpConfiguration,
+    SystemConfiguration,
     TrustedPerson,
     TrustedPersonToken,
 )
@@ -705,15 +706,26 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         assert confirmation.status_code == 200
         assert "owner@example.org" not in confirmation.text
         submission = hidden_value(confirmation.text, "submission")
+        message_count = len(RecordingEmailProvider.messages)
         success = client.post(
             f"{notify_path}/confirm",
             data={"csrf": notify_csrf, "submission": submission},
             follow_redirects=True,
         )
         assert success.status_code == 200
-        assert "Die vertrauliche Nachricht wurde zur Zustellung angenommen." in success.text
-        assert "Sie müssen nichts weiter tun" in success.text
-        assert RecordingEmailProvider.messages[-1][0] == "owner@example.org"
+        assert "Meldung vorgemerkt" in success.text
+        assert "Die Meldung wurde noch nicht versendet" in success.text
+        assert "Meldung widerrufen" in success.text
+        assert len(RecordingEmailProvider.messages) == message_count
+        cancel_action = re.search(
+            rf'action="({re.escape(notify_path)}/notifications/[^\"]+/cancel)"',
+            success.text,
+        ).group(1)
+        cancelled = client.post(
+            cancel_action, data={"csrf": notify_csrf}, follow_redirects=True,
+        )
+        assert "Die Meldung wird nicht versendet und ihr Inhalt wurde gelöscht" in cancelled.text
+        assert len(RecordingEmailProvider.messages) == message_count
 
         dashboard = client.get("/account/dashboard")
         partner_disable_path = f"/account/partners/{partner_id}/disable"
@@ -794,7 +806,15 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
         system = client.get("/admin/system")
         assert system.status_code == 200
         assert "E-Mail-Versand einrichten" in system.text
+        assert 'name="minutes" min="0" max="1440" value="10"' in system.text
         csrf = hidden_value(system.text, "csrf")
+
+        delay = client.post(
+            "/admin/system/notification-delay",
+            data={"csrf": csrf, "minutes": "90"},
+            follow_redirects=True,
+        )
+        assert "Wartezeit für neue Meldungen wurde gespeichert" in delay.text
 
         saved = client.post("/admin/system/smtp", data={
             "csrf": csrf,
@@ -856,6 +876,7 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
     with Session(engine) as db:
         stored = db.get(SmtpConfiguration, "default")
         assert b"secret-password" not in stored.encrypted_password
+        assert db.get(SystemConfiguration, "default").notification_delay_minutes == 90
 
 
 def test_admin_can_publish_escaped_operator_information():

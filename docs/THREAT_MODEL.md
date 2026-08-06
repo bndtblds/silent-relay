@@ -66,7 +66,8 @@ trusted with account or recipient information.
 | A scheduler process or container stops while processing a delivery | A two-minute database lease records when the claim began and when it expires. A later scheduler cycle can reclaim an expired claim and repeats the complete send-time authorization check. |
 | Permission changes after a notification is accepted | Immediately before every SMTP attempt, SilentRelay rechecks the account, contact, ownership, partner, notification, payload, and expiry inside the same transaction as the send attempt. A withdrawn delivery is cancelled without calling the provider or scheduling another retry. |
 | Two schedulers process the same SQLite database | Exactly one scheduler instance is supported with SQLite. An atomic conditional claim and a time-bounded lease prevent an accidentally overlapping cycle from taking a live claim. |
-| A claimed real-world event is false | SilentRelay forwards submitted text but cannot verify whether it is true. Messages do not claim independent verification. |
+| A trusted person submits a message by mistake or in haste | Before final submission, SilentRelay displays an explicit seriousness warning. The message then remains queued for ten minutes by default and can be cancelled through the same authenticated personal access until its fixed release time. The technical administrator may configure 0 to 1,440 minutes. |
+| A trusted person deliberately submits a false message | SilentRelay forwards submitted text but cannot verify whether it is true. Messages do not claim independent verification. The account owner is responsible for selecting trusted persons and can replace their access. The waiting period limits mistakes and impulsive submissions, but it does not stop a deliberately false message that is left in the queue. |
 | The server becomes unavailable | Health checks, persistent storage, and documented backup and restore procedures support recovery. |
 | The SilentRelay host and its off-site credentials are compromised | Only encrypted archives are transferred. Dedicated SFTP or WebDAV credentials, pinned SFTP host keys, HTTPS, partial-upload cleanup, and target-side retention or immutable snapshots limit exposure. Credentials reachable from the host cannot prevent an attacker from deleting every remotely writable backup. |
 
@@ -131,8 +132,11 @@ the same restricted failure state as with a correlated permanent report. In
 production, a failed initial confirmation never exposes the secret confirmation
 link in the browser.
 
-Recipient selection is not a permanent authorization grant. The immediate send
-and every scheduler retry use the same delivery service, which rechecks that the
+Recipient selection is not a permanent authorization grant. A notification is
+eligible for its initial delivery only after its fixed `release_at`; every
+scheduler candidate selection and conditional claim also requires that it has
+not been cancelled. Initial delivery and every retry use the same delivery
+service, which rechecks that the
 account is active or overdue and not administratively locked, that the contact
 is still active, confirmed, correctly owned, and attached to the notification's
 account, that an assigned partner still exists and is active, and that the
@@ -159,6 +163,9 @@ The following limitations are accepted:
   in a narrow window can cause a duplicate external email; see ADR 0013.
 - Delivery reports can be missing, delayed, non-standard, or deliberately
   forged by someone who knows a current correlation code.
+- An authorized trusted person can deliberately submit a false message and
+  allow the cancellation window to expire. SilentRelay relies on the account
+  owner's selection of that person and cannot verify the claimed event.
 - A trusted-person QR code is usable only with its PIN after setup. A copied QR
   code remains one part of the credential until the access is replaced. Before
   initial setup, possession of the code is sufficient to choose the PIN; this

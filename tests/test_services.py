@@ -11,7 +11,7 @@ from app.models import (
     Account, AccountReview, AccountStatus, ContactMethod, ContactReview,
     ContactReviewToken, Delivery, DeliveryStatus, Notification,
     NotificationStatus, Partner, ReviewReminder, ServerSession,
-    TrustedPersonToken,
+    SystemConfiguration, TrustedPersonToken,
 )
 from app.providers.base import DeliveryResult
 from app.security.core import SessionManager, hash_pin, keyed_hash
@@ -238,6 +238,70 @@ def test_submission_is_one_time(db, settings, cipher):
         pass
     else:
         raise AssertionError("submission accepted twice")
+
+
+def test_notification_waits_for_fixed_release_time_and_can_be_cancelled(
+    db, settings, cipher
+):
+    config = db.get(SystemConfiguration, "default")
+    config.notification_delay_minutes = 60
+    account = active_account(db, settings, cipher)
+    management = ManagementService(settings, cipher)
+    origin = management.add_partner(db, account.id, "Origin")
+    _, token = management.add_trusted_person(
+        db, account.id, "partner", origin.id, "Trusted"
+    )
+    service = NotificationService(settings, cipher)
+    person = service.resolve_person(db, token)
+    before = datetime.utcnow()
+    notification = service.accept(
+        db, service.stage(db, person, "A sufficiently long queued message.")
+    )
+    original_release_at = notification.release_at
+    assert before + timedelta(minutes=59) < original_release_at
+
+    config.notification_delay_minutes = 0
+    db.commit()
+    provider = SuccessfulProvider()
+    assert DeliveryService(settings, cipher, {"email": provider}).process_due(db) == 0
+    assert provider.recipients == []
+    assert service.pending_for_person(db, person.id) == [notification]
+    assert notification.release_at == original_release_at
+
+    assert service.cancel(db, person.id, notification.id)
+    db.refresh(notification)
+    assert notification.status == NotificationStatus.discarded
+    assert notification.cancelled_at is not None
+    assert notification.encrypted_message_payload is None
+    assert db.scalar(select(Delivery.status).where(
+        Delivery.notification_id == notification.id
+    )) == DeliveryStatus.cancelled
+    assert not service.cancel(db, person.id, notification.id)
+
+
+def test_notification_is_delivered_after_release_time(db, settings, cipher):
+    config = db.get(SystemConfiguration, "default")
+    config.notification_delay_minutes = 60
+    account = active_account(db, settings, cipher)
+    management = ManagementService(settings, cipher)
+    origin = management.add_partner(db, account.id, "Origin")
+    _, token = management.add_trusted_person(
+        db, account.id, "partner", origin.id, "Trusted"
+    )
+    service = NotificationService(settings, cipher)
+    notification = service.accept(
+        db,
+        service.stage(db, service.resolve_person(db, token), "A sufficiently long queued message."),
+    )
+    provider = SuccessfulProvider()
+    delivery = DeliveryService(settings, cipher, {"email": provider})
+    assert delivery.process_due(db, notification.release_at - timedelta(seconds=1)) == 0
+    assert not service.cancel(
+        db, service.resolve_person(db, token).id, notification.id,
+        now=notification.release_at,
+    )
+    assert delivery.process_due(db, notification.release_at) == 1
+    assert provider.recipients == ["owner@example.org"]
 
 
 def test_delivery_success_removes_message(db, settings, cipher):

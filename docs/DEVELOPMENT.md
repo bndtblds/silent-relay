@@ -221,11 +221,19 @@ atomically consume an initial or periodic confirmation token. Tests for this
 flow must include automatic GET requests, replay, expiry, wrong CSRF values,
 and parallel POST attempts.
 
-Every immediate delivery and scheduler retry uses `DeliveryService`. Before a
-provider call it rechecks the notification, payload, expiry, account and lock,
-contact verification and ownership, and any partner assignment. A locally
-withdrawn delivery becomes `cancelled`; this is distinct from an external
-`permanent_failure`.
+Each accepted notification stores a fixed `release_at` calculated from the
+global waiting period at submission time. Later configuration changes must not
+alter an existing release time. Before release, the authenticated trusted
+person can cancel the notification atomically. Cancellation sets
+`cancelled_at`, erases the encrypted payload, and changes every delivery that
+has not started from `pending` to `cancelled`.
+
+Initial delivery and every scheduler retry use `DeliveryService`. Its candidate
+selection and conditional claim both require a released, non-cancelled
+notification. Before a provider call it also rechecks the notification,
+payload, expiry, account and lock, contact verification and ownership, and any
+partner assignment. A locally withdrawn delivery becomes `cancelled`; this is
+distinct from an external `permanent_failure`.
 
 Delivery processing uses an atomic conditional claim and a two-minute lease in
 `processing_started_at` and `processing_until`. A live lease cannot be claimed
@@ -235,6 +243,12 @@ the lease. Keep crash-before-provider, crash-after-SMTP, overlapping-cycle,
 expired-lease, and migration tests when changing this code. SMTP can still
 produce a duplicate after acceptance followed by a crash; ADR 0013 remains the
 authoritative limitation.
+
+Queue tests must cover the default and configured delay, unchanged release
+times after configuration changes, no provider call before release, delivery
+at or after release, cancellation by the matching trusted person, rejection at
+the release boundary or after processing starts, payload erasure, and migration
+of existing notifications as immediately due.
 
 Public operator information is untrusted input even though only the technical
 admin can edit it. Keep its Markdown renderer allowlist-based: escape text and

@@ -12,6 +12,7 @@ from app.models import (
     DeliveryStatus,
     NotificationStatus,
     ReviewReminder,
+    SystemConfiguration,
     TrustedPersonToken,
 )
 from app.model_base import Base
@@ -265,6 +266,8 @@ def test_overlapping_scheduler_run_cannot_take_valid_claim(
     engine = create_engine(f"sqlite:///{(tmp_path / 'overlap.db').as_posix()}")
     Base.metadata.create_all(engine)
     with Session(engine, expire_on_commit=False) as setup_db:
+        setup_db.add(SystemConfiguration(id="default", notification_delay_minutes=0))
+        setup_db.commit()
         service = AccountService(settings, cipher)
         account, _, setup = service.create(setup_db)
         _, verification = service.setup(

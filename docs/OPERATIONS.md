@@ -126,21 +126,41 @@ domains redirect to the primary domain.
 
 1. Sign in to `/admin/login`.
 2. Open the system settings.
-3. Enter the SMTP server details.
-4. Test the SMTP connection.
-5. Send a test email.
-6. If the sender address is a dedicated technical mailbox, configure automatic
+3. Review the notification waiting period. The default is ten minutes.
+4. Enter the SMTP server details.
+5. Test the SMTP connection.
+6. Send a test email.
+7. If the sender address is a dedicated technical mailbox, configure automatic
    delivery-failure detection as described below.
-7. Open **Public information** in the administration area.
-8. Add the operator's reviewed imprint, privacy information, and public contact
+8. Open **Public information** in the administration area.
+9. Add the operator's reviewed imprint, privacy information, and public contact
    address for German and English. If one version is missing, visitors see the
    configured fallback language together with a clear notice.
-9. Open the public imprint, privacy, and contact pages from the footer and
+10. Open the public imprint, privacy, and contact pages from the footer and
    verify their content.
-10. Open the public start page and create the first SilentRelay account.
+11. Open the public start page and create the first SilentRelay account.
 
 SMTP is deliberately checked separately. A temporary mail-server failure does
 not take the SilentRelay website offline.
+
+### Configure the notification waiting period
+
+Every submitted confidential message receives a fixed release time. The
+default waiting period is ten minutes. Until that time, the authenticated
+trusted person sees the queued message through the same personal access and
+can cancel it. Cancellation erases the encrypted message content and prevents
+all deliveries that have not started.
+
+The technical administrator can configure a global value from `0` to `1440`
+minutes under **Waiting period and cancellation** in the system settings. A
+change affects only messages submitted afterwards; every already queued
+message keeps its original release time. A value of `0` releases new messages
+immediately and therefore provides no guaranteed cancellation window.
+
+The scheduler processes a released message on its next cycle. Actual delivery
+can therefore begin up to one configured scheduler interval after the displayed
+release time. Once a delivery has been claimed for processing, SilentRelay no
+longer promises that the message can be cancelled.
 
 ### Detect permanent email delivery failures
 

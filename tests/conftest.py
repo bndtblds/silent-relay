@@ -47,6 +47,8 @@ def db():
     )
     Base.metadata.create_all(engine)
     with Session(engine, expire_on_commit=False) as session:
+        session.add(SystemConfiguration(id="default", notification_delay_minutes=0))  # noqa: F405
+        session.commit()
         yield session
     Base.metadata.drop_all(engine)
     engine.dispose()

@@ -26,6 +26,10 @@ from app.smtp_config import (
     disable_ndr_config, load_email_config, load_email_provider, load_ndr_config,
     save_email_config, save_ndr_config, test_imap_connection, test_smtp_connection,
 )
+from app.system_config import (
+    MAX_NOTIFICATION_DELAY_MINUTES, notification_delay_minutes,
+    save_notification_delay,
+)
 
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory="app/templates")
@@ -162,10 +166,30 @@ def system_configuration(request: Request, db: Session = Depends(get_db), settin
                 if stored and stored.encrypted_imap_username else ""
             ),
             imap_password_configured=bool(stored and stored.encrypted_imap_password),
+            notification_delay_minutes=notification_delay_minutes(db),
+            max_notification_delay_minutes=MAX_NOTIFICATION_DELAY_MINUTES,
             csrf=request.cookies.get("sr_admin_csrf", ""),
             result=request.query_params.get("result"),
         )
     )
+
+
+@router.post("/system/notification-delay")
+def update_notification_delay(
+    request: Request,
+    minutes: int = Form(...),
+    csrf: str = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    verify_admin_csrf(request, csrf, db, settings)
+    try:
+        save_notification_delay(db, minutes)
+    except ValueError:
+        return RedirectResponse("/admin/system?result=delay_invalid", 303)
+    audit(db, "notification_delay_updated")
+    db.commit()
+    return RedirectResponse("/admin/system?result=delay_saved", 303)
 
 
 @router.get("/public-content", response_class=HTMLResponse)

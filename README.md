@@ -35,7 +35,8 @@ replace emergency services or official arrangements.
 - Partners and trusted persons within one private group
 - Secret, printable QR access plus a personal six-digit PIN for each trusted
   person
-- Confidential message submission with a review step
+- Confidential message submission with a review step, a ten-minute waiting
+  period by default, and cancellation before release for delivery
 - Server-side recipient selection without exposing names or recipient counts
 - Individually verified email contact methods with automatic periodic
   reconfirmation
@@ -125,7 +126,11 @@ Manual configuration and advanced deployment options are documented in
 
 Run one `web` service and exactly one `scheduler` when using the default SQLite
 database. The scheduler sends queued notifications and performs recurring
-cleanup.
+cleanup. Newly submitted confidential messages remain queued for ten minutes
+by default. During that time, the trusted person sees that the message has not
+yet been sent and can cancel it through the same personal access. The technical
+administrator can configure a waiting period from 0 to 1,440 minutes; changes
+apply only to messages submitted afterwards.
 
 Useful commands:
 

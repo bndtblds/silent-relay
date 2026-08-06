@@ -156,6 +156,8 @@ class Notification(Base):
     status: Mapped[NotificationStatus] = mapped_column(Enum(NotificationStatus), default=NotificationStatus.created)
     message_digest: Mapped[str] = mapped_column(String(64))
     encrypted_message_payload: Mapped[bytes | None] = mapped_column(LargeBinary)
+    release_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime)
     deduplication_key: Mapped[str] = mapped_column(String(64), unique=True)
 
@@ -294,6 +296,13 @@ class SmtpConfiguration(Base):
     encrypted_imap_username: Mapped[bytes | None] = mapped_column(LargeBinary)
     encrypted_imap_password: Mapped[bytes | None] = mapped_column(LargeBinary)
     ndr_acknowledged_address_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class SystemConfiguration(Base):
+    __tablename__ = "system_configurations"
+    id: Mapped[str] = mapped_column(String(16), primary_key=True, default="default")
+    notification_delay_minutes: Mapped[int] = mapped_column(Integer, default=10)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 

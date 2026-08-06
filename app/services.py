@@ -22,6 +22,7 @@ from app.security.core import (
     FieldCipher, SessionManager, fingerprint, generate_token, hash_password,
     keyed_hash, verify_password,
 )
+from app.system_config import notification_delay_minutes
 
 
 def audit(db: Session, event: str, account_id: str | None = None, **metadata: object) -> None:
@@ -465,10 +466,13 @@ class NotificationService:
             raise LookupError
         message = self.cipher.decrypt(submission.encrypted_message)
         digest = keyed_hash(message, self.settings.fingerprint_hmac_key)
+        now = datetime.utcnow()
+        release_at = now + timedelta(minutes=notification_delay_minutes(db))
         notification = Notification(
             account_id=account.id, trusted_person_id=person.id, status=NotificationStatus.queued,
             message_digest=digest, encrypted_message_payload=self.cipher.encrypt(message),
-            expires_at=datetime.utcnow() + timedelta(hours=self.settings.message_retention_hours),
+            release_at=release_at,
+            expires_at=release_at + timedelta(hours=self.settings.message_retention_hours),
             deduplication_key=submission.id_hash,
         )
         db.add(notification)
@@ -478,10 +482,54 @@ class NotificationService:
             raise LookupError
         for contact in contacts:
             db.add(Delivery(notification_id=notification.id, contact_method_id=contact.id, provider=contact.channel))
-        submission.consumed_at = datetime.utcnow()
+        submission.consumed_at = now
         audit(db, "notification_accepted", account.id, count=len(contacts))
         db.commit()
         return notification
+
+    @staticmethod
+    def pending_for_person(db: Session, person_id: str, now: datetime | None = None) -> list[Notification]:
+        now = now or datetime.utcnow()
+        return list(db.scalars(select(Notification).where(
+            Notification.trusted_person_id == person_id,
+            Notification.status == NotificationStatus.queued,
+            Notification.cancelled_at.is_(None),
+            Notification.release_at > now,
+        ).order_by(Notification.release_at)))
+
+    def cancel(self, db: Session, person_id: str, notification_id: str, now: datetime | None = None) -> bool:
+        now = now or datetime.utcnow()
+        delivery_started = select(Delivery.id).where(
+            Delivery.notification_id == Notification.id,
+            Delivery.status != DeliveryStatus.pending,
+        ).exists()
+        cancelled = db.execute(
+            update(Notification).where(
+                Notification.id == notification_id,
+                Notification.trusted_person_id == person_id,
+                Notification.status == NotificationStatus.queued,
+                Notification.cancelled_at.is_(None),
+                Notification.release_at > now,
+                ~delivery_started,
+            ).values(
+                status=NotificationStatus.discarded,
+                cancelled_at=now,
+                encrypted_message_payload=None,
+            )
+        )
+        if cancelled.rowcount != 1:
+            db.rollback()
+            return False
+        for delivery in db.scalars(select(Delivery).where(
+            Delivery.notification_id == notification_id,
+            Delivery.status == DeliveryStatus.pending,
+        )):
+            delivery.status = DeliveryStatus.cancelled
+            delivery.encrypted_error_detail = self.cipher.encrypt("notification_cancelled")
+        notification = db.get(Notification, notification_id)
+        audit(db, "notification_cancelled", notification.account_id)
+        db.commit()
+        return True
 
 
 class DeliveryService:
@@ -493,7 +541,12 @@ class DeliveryService:
 
     def process_due(self, db: Session, now: datetime | None = None) -> int:
         now = now or datetime.utcnow()
+        released_notifications = select(Notification.id).where(
+            Notification.release_at <= now,
+            Notification.cancelled_at.is_(None),
+        )
         delivery_ids = list(db.scalars(select(Delivery.id).where(
+            Delivery.notification_id.in_(released_notifications),
             or_(
                 and_(
                     Delivery.status.in_([DeliveryStatus.pending, DeliveryStatus.retry_scheduled]),
@@ -512,6 +565,7 @@ class DeliveryService:
                 update(Delivery)
                 .where(
                     Delivery.id == delivery_id,
+                    Delivery.notification_id.in_(released_notifications),
                     or_(
                         and_(
                             Delivery.status.in_([DeliveryStatus.pending, DeliveryStatus.retry_scheduled]),

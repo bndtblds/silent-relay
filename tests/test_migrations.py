@@ -52,6 +52,13 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
             row[1]
             for row in connection.execute("PRAGMA table_info(server_sessions)")
         }
+        notification_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(notifications)")
+        }
+        system_configuration_columns = {
+            row[1]: row[4]
+            for row in connection.execute("PRAGMA table_info(system_configurations)")
+        }
     assert "public_site_contents" in tables
     assert "email_delivery_tracking" in tables
     assert "language_code" in account_columns
@@ -66,7 +73,11 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert "pin_hash" in trusted_token_columns
     assert "enrollment_expires_at" in trusted_token_columns
     assert "trusted_person_id" in session_columns
-    assert revision == "0008"
+    assert "system_configurations" in tables
+    assert "release_at" in notification_columns
+    assert "cancelled_at" in notification_columns
+    assert system_configuration_columns["notification_delay_minutes"] == "'10'"
+    assert revision == "0009"
 
 
 def test_existing_database_upgrades_without_losing_data(tmp_path, monkeypatch):
