@@ -126,6 +126,7 @@ def accounts(request: Request, db: Session = Depends(get_db), settings: Settings
         admin_context(
             request, settings,
             accounts=rows,
+            admin_section="accounts",
             public_content_complete=public_site_content_is_complete(public_content),
             csrf=request.cookies.get("sr_admin_csrf", ""),
         )
@@ -152,6 +153,7 @@ def system_configuration(request: Request, db: Session = Depends(get_db), settin
         admin_context(
             request, settings,
             notification_delay_minutes=notification_delay_minutes(db),
+            admin_section="system",
             max_notification_delay_minutes=MAX_NOTIFICATION_DELAY_MINUTES,
             system_config=load_system_configuration(db),
             csrf=request.cookies.get("sr_admin_csrf", ""),
@@ -175,6 +177,7 @@ def retention_configuration(
         admin_context(
             request, settings,
             system_config=config,
+            admin_section="system",
             reminder_days=review_reminder_days(config),
             csrf=request.cookies.get("sr_admin_csrf", ""),
             result=request.query_params.get("result"),
@@ -197,6 +200,7 @@ def email_configuration(request: Request, db: Session = Depends(get_db), setting
         admin_context(
             request, settings,
             config=config,
+            admin_section="system",
             password_configured=bool(stored and stored.encrypted_password),
             stored_in_database=bool(stored),
             ndr_enabled=bool(ndr_config),
@@ -301,6 +305,7 @@ def public_content_configuration(
         admin_context(
             request, settings,
             content=stored,
+            admin_section="public",
             content_language=content_language,
             complete=public_site_content_is_complete(stored),
             csrf=request.cookies.get("sr_admin_csrf", ""),
@@ -345,6 +350,7 @@ def update_public_content(
                 "contact_email": contact_email,
                 "contact_text": contact_text,
                 },
+                admin_section="public",
                 complete=False,
                 content_language=language_code,
                 csrf=csrf,

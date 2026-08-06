@@ -176,16 +176,24 @@ def test_complete_admin_area_uses_browser_language():
         )
         assert "Technical account overview" in accounts.text
         assert "System settings" in accounts.text
-        assert "System settings" in client.get("/admin/system", headers=headers).text
-        assert "Periods and retention" in client.get(
+        assert 'href="/admin/accounts" aria-current="page"' in accounts.text
+        system = client.get("/admin/system", headers=headers)
+        assert "System settings" in system.text
+        assert 'href="/admin/system" aria-current="page"' in system.text
+        retention = client.get(
             "/admin/system/retention", headers=headers
-        ).text
-        assert "SMTP server and sender" in client.get(
+        )
+        assert "Periods and retention" in retention.text
+        assert 'href="/admin/system" aria-current="page"' in retention.text
+        email = client.get(
             "/admin/system/email", headers=headers
-        ).text
+        )
+        assert "SMTP server and sender" in email.text
+        assert 'href="/admin/system" aria-current="page"' in email.text
         public = client.get("/admin/public-content?content_language=en", headers=headers)
         assert "Legal notice, privacy and contact details" in public.text
         assert "System settings" in public.text
+        assert 'href="/admin/public-content" aria-current="page"' in public.text
         assert 'name="language_code" value="en"' in public.text
 
 

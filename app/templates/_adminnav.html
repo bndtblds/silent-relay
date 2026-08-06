@@ -1,0 +1,6 @@
+<nav class="actions admin-nav" aria-label="{{ 'Administration' if language == 'de' else 'Administration' }}">
+  <a class="button {{ '' if admin_section == 'accounts' else 'secondary' }}" href="/admin/accounts" {% if admin_section == 'accounts' %}aria-current="page"{% endif %}>{{ "Kontenübersicht" if language == "de" else "Accounts" }}</a>
+  <a class="button {{ '' if admin_section == 'public' else 'secondary' }}" href="/admin/public-content" {% if admin_section == 'public' %}aria-current="page"{% endif %}>{{ "Öffentliche Angaben" if language == "de" else "Public information" }}</a>
+  <a class="button {{ '' if admin_section == 'system' else 'secondary' }}" href="/admin/system" {% if admin_section == 'system' %}aria-current="page"{% endif %}>{{ "Systemeinstellungen" if language == "de" else "System settings" }}</a>
+  <form class="admin-logout" method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">{{ "Abmelden" if language == "de" else "Sign out" }}</button></form>
+</nav>
