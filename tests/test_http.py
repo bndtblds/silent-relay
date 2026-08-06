@@ -119,6 +119,8 @@ def test_public_html_pages_render():
     assert "SilentRelay prüft weder die reale Identität" in help_page.text
     assert "Vor der PIN-Einrichtung" in help_page.text
     assert "E-Mail-Anbieter und die empfangenden Mailserver" in help_page.text
+    assert "standardmäßig zehn Minuten" in help_page.text
+    assert "noch nicht versendet wurde" in help_page.text
     assert create.status_code == 200
     assert 'name="csrf"' in create.text
     assert admin.status_code == 200
@@ -138,6 +140,8 @@ def test_browser_language_controls_public_and_admin_pages():
     assert "What is SilentRelay?" in help_page.text
     assert "Before the PIN is set up" in help_page.text
     assert "does not provide legal recognition" in help_page.text
+    assert "ten minutes by default" in help_page.text
+    assert "it has not been sent yet" in help_page.text
     assert "Account language" in create.text
     assert "Admin sign-in" in admin_login.text
 
@@ -171,9 +175,11 @@ def test_complete_admin_area_uses_browser_language():
             follow_redirects=True,
         )
         assert "Technical account overview" in accounts.text
-        assert "Configure email delivery" in client.get("/admin/system", headers=headers).text
+        assert "System settings" in accounts.text
+        assert "System settings" in client.get("/admin/system", headers=headers).text
         public = client.get("/admin/public-content?content_language=en", headers=headers)
         assert "Legal notice, privacy and contact details" in public.text
+        assert "System settings" in public.text
         assert 'name="language_code" value="en"' in public.text
 
 
@@ -805,7 +811,8 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
         assert "Technische Kontenübersicht" in login.text
         system = client.get("/admin/system")
         assert system.status_code == 200
-        assert "E-Mail-Versand einrichten" in system.text
+        assert "Systemeinstellungen" in system.text
+        assert "E-Mail-Versand" in system.text
         assert 'name="minutes" min="0" max="1440" value="10"' in system.text
         csrf = hidden_value(system.text, "csrf")
 

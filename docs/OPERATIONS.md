@@ -178,7 +178,8 @@ address before `@` may contain at most 20 bytes. A short address such as
 Mailcow supports these features, but Mailcow is not required. Ask the provider
 of the existing mailbox whether plus addressing and IMAP are available.
 
-Open **Email delivery** in the administration area and configure SMTP first.
+Open **System settings** in the administration area and configure SMTP under
+**Email delivery** first.
 The sender address should be the address of this technical mailbox. In
 **Detect delivery failures automatically**, enter its IMAP server, port,
 username, and password. To acknowledge the deletion rule, type the exact sender
