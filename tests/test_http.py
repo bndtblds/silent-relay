@@ -725,9 +725,9 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
             follow_redirects=True,
         )
         assert success.status_code == 200
-        assert "Meldung vorgemerkt" in success.text
-        assert "Die Meldung wurde noch nicht versendet" in success.text
-        assert "Meldung widerrufen" in success.text
+        assert "Nachricht vorgemerkt" in success.text
+        assert "Die Nachricht wurde noch nicht versendet" in success.text
+        assert "Nachricht widerrufen" in success.text
         assert len(RecordingEmailProvider.messages) == message_count
         cancel_action = re.search(
             rf'action="({re.escape(notify_path)}/notifications/[^\"]+/cancel)"',
@@ -736,7 +736,7 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         cancelled = client.post(
             cancel_action, data={"csrf": notify_csrf}, follow_redirects=True,
         )
-        assert "Die Meldung wird nicht versendet und ihr Inhalt wurde gelöscht" in cancelled.text
+        assert "Die Nachricht wird nicht versendet und ihr Inhalt wurde gelöscht" in cancelled.text
         assert len(RecordingEmailProvider.messages) == message_count
 
         dashboard = client.get("/account/dashboard")
@@ -827,7 +827,7 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
             data={"csrf": csrf, "minutes": "90"},
             follow_redirects=True,
         )
-        assert "Wartezeit für neue Meldungen wurde gespeichert" in delay.text
+        assert "Wartezeit für neue Nachrichten wurde gespeichert" in delay.text
 
         account_creation = client.post(
             "/admin/system/account-creation",
