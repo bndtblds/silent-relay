@@ -80,7 +80,60 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert system_configuration_columns["account_creation_enabled"] == "1"
     assert system_configuration_columns["account_review_interval_days"] == "'180'"
     assert system_configuration_columns["message_retention_hours"] == "'48'"
-    assert revision == "0009"
+    assert revision == "0010"
+
+
+def test_published_0009_database_receives_operational_configuration(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "published-0009.db"
+    _upgrade(database_path, "0009", monkeypatch)
+    operational_columns = (
+        "account_creation_enabled",
+        "account_pending_retention_days",
+        "account_review_interval_days",
+        "account_review_reminder_days",
+        "account_review_grace_days",
+        "contact_problem_reminder_days",
+        "account_retention_after_disable_days",
+        "message_retention_hours",
+        "audit_retention_days",
+    )
+    with sqlite3.connect(database_path) as connection:
+        published_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(system_configurations)"
+            )
+        }
+        assert not set(operational_columns) & published_columns
+        connection.execute(
+            "INSERT INTO system_configurations "
+            "(id, notification_delay_minutes, updated_at) "
+            "VALUES ('default', 75, '2026-08-06 12:00:00')"
+        )
+        connection.commit()
+
+    _upgrade(database_path, "head", monkeypatch)
+
+    with sqlite3.connect(database_path) as connection:
+        columns = {
+            row[1]: row[4]
+            for row in connection.execute(
+                "PRAGMA table_info(system_configurations)"
+            )
+        }
+        stored = connection.execute(
+            "SELECT notification_delay_minutes, account_creation_enabled, "
+            "account_review_interval_days, message_retention_hours "
+            "FROM system_configurations WHERE id = 'default'"
+        ).fetchone()
+        revision = connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone()[0]
+    assert set(operational_columns) <= columns.keys()
+    assert stored == (75, 1, 180, 48)
+    assert revision == "0010"
 
 
 def test_existing_database_upgrades_without_losing_data(tmp_path, monkeypatch):
