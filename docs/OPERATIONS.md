@@ -473,6 +473,52 @@ a non-zero exit status. Monitor that status or the log. A backup kept only on
 the SilentRelay server does not protect against loss of that server. Copy the
 encrypted archive to a separate, access-controlled system.
 
+### Transfer backups off site
+
+`transfer-backup.sh` is independent of archive creation. It transfers only a
+completed `age`-encrypted archive and never uploads `.env`, the database, or
+the private age identity separately. Copy `.backup-transfer.conf.example` to
+`.backup-transfer.conf` and configure either SFTP or HTTPS WebDAV.
+
+For SFTP, use a dedicated SSH key and a dedicated account with access only to
+the backup directory. Put the pinned server host key in the configured
+known-hosts file; do not use `StrictHostKeyChecking=no`. The remote directory
+must already exist. For WebDAV, use a dedicated account and app password. Store
+it in the configured mode-`0600` netrc file:
+
+```text
+machine cloud.example.org login silentrelay password replace-with-app-password
+```
+
+Do not put a password in `.backup-transfer.conf` or in the WebDAV URL. Test a
+manual transfer first. Without an argument the script selects the newest
+completed backup for this installation; an explicit archive is also accepted:
+
+```sh
+sh transfer-backup.sh
+sh transfer-backup.sh /var/backups/silent-relay/silentrelay-....tar.gz.age
+```
+
+The script uploads to a unique `.partial` name, compares the remote and local
+sizes, and only then renames or moves it to the final name without requesting
+overwrite. A failed transfer returns a non-zero status, attempts to remove its
+partial upload, and always preserves the local archive. It never deletes
+completed remote backups. Configure retention, snapshots, or immutable storage
+on the target independently.
+
+Run creation and transfer as separate stages in one monitored cron job:
+
+```cron
+15 3 * * * cd /opt/silent-relay && sh backup.sh && sh transfer-backup.sh >>/var/log/silentrelay-backup.log 2>&1
+```
+
+Because of `&&`, transfer starts only after successful archive creation. A
+transfer failure makes the cron command fail while leaving the new local
+backup available for a retry. A compromised SilentRelay server can still alter
+or delete every remote backup reachable with its credentials. Prefer
+target-side snapshots, append-only permissions, or an external system that
+pulls backups when stronger protection is required.
+
 Do not consider a backup complete until its restoration has been tested. Avoid
 copying individual files from a running Docker volume.
 

@@ -68,6 +68,7 @@ trusted with account or recipient information.
 | Two schedulers process the same SQLite database | Exactly one scheduler instance is supported with SQLite. An atomic conditional claim and a time-bounded lease prevent an accidentally overlapping cycle from taking a live claim. |
 | A claimed real-world event is false | SilentRelay forwards submitted text but cannot verify whether it is true. Messages do not claim independent verification. |
 | The server becomes unavailable | Health checks, persistent storage, and documented backup and restore procedures support recovery. |
+| The SilentRelay host and its off-site credentials are compromised | Only encrypted archives are transferred. Dedicated SFTP or WebDAV credentials, pinned SFTP host keys, HTTPS, partial-upload cleanup, and target-side retention or immutable snapshots limit exposure. Credentials reachable from the host cannot prevent an attacker from deleting every remotely writable backup. |
 
 ## Email delivery reports and the technical mailbox
 

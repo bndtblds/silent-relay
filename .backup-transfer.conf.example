@@ -1,0 +1,16 @@
+# Copy to .backup-transfer.conf and configure exactly one target.
+TRANSFER_TARGET=sftp
+
+# SFTP: dedicated key, pinned host key, and an existing remote directory.
+SFTP_HOST=backup.example.org
+SFTP_PORT=22
+SFTP_USER=silentrelay
+SFTP_DIRECTORY=/backups/silent-relay
+SFTP_IDENTITY_FILE=/root/.ssh/silentrelay-backup
+SFTP_KNOWN_HOSTS_FILE=/root/.ssh/silentrelay-backup-known-hosts
+
+# WebDAV alternative. The credential file must be mode 0600 and use netrc syntax:
+# machine cloud.example.org login silentrelay password replace-with-app-password
+# TRANSFER_TARGET=webdav
+# WEBDAV_BASE_URL=https://cloud.example.org/remote.php/dav/files/silentrelay/backups
+# WEBDAV_CREDENTIAL_FILE=/root/.config/silent-relay/backup-webdav.netrc

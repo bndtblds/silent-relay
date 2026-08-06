@@ -1,6 +1,7 @@
 docs.local/
 .env
 .backup.conf
+.backup-transfer.conf
 backup-age-identity.key
 .venv/
 __pycache__/

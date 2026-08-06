@@ -1,4 +1,7 @@
 .env
+.backup.conf
+.backup-transfer.conf
+backup-age-identity.key
 .git
 .gitignore
 .venv
