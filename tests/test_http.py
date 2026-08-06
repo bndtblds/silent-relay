@@ -736,6 +736,10 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         assert "Nachricht vorgemerkt" in success.text
         assert "Die Nachricht wurde noch nicht versendet" in success.text
         assert "Nachricht widerrufen" in success.text
+        assert "Dies ist eine vertrauliche Testnachricht." in success.text
+        assert 'data-local-datetime' in success.text
+        assert re.search(r'datetime="[^"]+Z"', success.text)
+        assert " UTC</time>" in success.text
         assert len(RecordingEmailProvider.messages) == message_count
         cancel_action = re.search(
             rf'action="({re.escape(notify_path)}/notifications/[^\"]+/cancel)"',

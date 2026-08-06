@@ -174,6 +174,10 @@ textarea { min-height: 12rem; resize: vertical; }
 .item-list { list-style: none; padding: 0; margin: 1rem 0; }
 .item-list li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem 0; border-bottom: 1px solid var(--border); }
 .item-list li > span:first-child { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.queued-message-list li { align-items: flex-start; }
+.queued-message { flex: 1; min-width: 0; }
+.queued-message .message { margin: .55rem 0; }
+.queued-message small { color: var(--muted); }
 .trusted-person-list li > span:first-child { flex: 1 1 14rem; min-width: 0; }
 .trusted-person-list .actions { justify-content: flex-end; }
 .trusted-person-list .actions button { padding: .65rem .75rem; }

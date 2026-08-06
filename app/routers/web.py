@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import qrcode
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -893,7 +893,8 @@ router.add_api_route("/account/{token}/login", account_owner_login, methods=["PO
 
 @router.get("/notify/{token}", response_class=HTMLResponse)
 def notify_form(token: str, request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    service = NotificationService(settings, FieldCipher(settings.field_encryption_key))
+    cipher = FieldCipher(settings.field_encryption_key)
+    service = NotificationService(settings, cipher)
     access = service.resolve_access(db, token)
     if not access:
         raise HTTPException(404)
@@ -922,7 +923,16 @@ def notify_form(token: str, request: Request, db: Session = Depends(get_db), set
     pending = [
         {
             "id": notification.id,
-            "release_at": format_datetime(notification.release_at, account.language_code),
+            "message": (
+                cipher.decrypt(notification.encrypted_message_payload)
+                if notification.encrypted_message_payload else ""
+            ),
+            "release_at_iso": notification.release_at.replace(
+                tzinfo=timezone.utc
+            ).isoformat().replace("+00:00", "Z"),
+            "release_at_fallback": (
+                f"{format_datetime(notification.release_at, account.language_code)} UTC"
+            ),
         }
         for notification in service.pending_for_person(db, person.id)
     ]
