@@ -37,7 +37,7 @@ backup_directory=$(read_value "$BACKUP_CONFIG" BACKUP_DIRECTORY)
 case "$installation_id" in *[!A-Za-z0-9-]*|'') fail "INSTALLATION_ID is invalid";; esac
 
 if [ "$#" -gt 1 ]; then
-    fail "usage: sh transfer-backup.sh [encrypted-backup]"
+    fail "usage: sh backup-transfer.sh [encrypted-backup]"
 elif [ "$#" -eq 1 ]; then
     archive=$1
 else

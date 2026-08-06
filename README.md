@@ -138,7 +138,7 @@ docker compose restart caddy web scheduler
 Before an update, run `sh backup.sh`. It creates an `age`-encrypted backup of
 the database volume together with the matching private application
 configuration, retains seven successful backups by default, and can also be
-scheduled with cron. `sh transfer-backup.sh` can then transfer the completed
+scheduled with cron. `sh backup-transfer.sh` can then transfer the completed
 encrypted archive to a separate SFTP or HTTPS WebDAV system. `sh restore.sh`
 restores such a backup into a fresh
 installation or a new server. See [Operations](docs/OPERATIONS.md) for key

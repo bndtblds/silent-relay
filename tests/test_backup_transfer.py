@@ -19,7 +19,7 @@ def _prepare(tmp_path: Path) -> tuple[Path, Path]:
     backups = tmp_path / "backups"
     project.mkdir()
     backups.mkdir()
-    shutil.copy(Path(__file__).parents[1] / "transfer-backup.sh", project)
+    shutil.copy(Path(__file__).parents[1] / "backup-transfer.sh", project)
     (project / ".backup.conf").write_text(
         f"BACKUP_DIRECTORY={backups}\n"
         "KEEP_BACKUPS=7\n"
@@ -36,7 +36,7 @@ def _run(
     project: Path, *arguments: str, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["sh", "transfer-backup.sh", *arguments],
+        ["sh", "backup-transfer.sh", *arguments],
         cwd=project,
         env={**os.environ, **(env or {})},
         text=True,

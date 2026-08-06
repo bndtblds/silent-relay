@@ -475,7 +475,7 @@ encrypted archive to a separate, access-controlled system.
 
 ### Transfer backups off site
 
-`transfer-backup.sh` is independent of archive creation. It transfers only a
+`backup-transfer.sh` is independent of archive creation. It transfers only a
 completed `age`-encrypted archive and never uploads `.env`, the database, or
 the private age identity separately. Copy `.backup-transfer.conf.example` to
 `.backup-transfer.conf` and configure either SFTP or HTTPS WebDAV.
@@ -495,8 +495,8 @@ manual transfer first. Without an argument the script selects the newest
 completed backup for this installation; an explicit archive is also accepted:
 
 ```sh
-sh transfer-backup.sh
-sh transfer-backup.sh /var/backups/silent-relay/silentrelay-....tar.gz.age
+sh backup-transfer.sh
+sh backup-transfer.sh /var/backups/silent-relay/silentrelay-....tar.gz.age
 ```
 
 The script uploads to a unique `.partial` name, compares the remote and local
@@ -509,7 +509,7 @@ on the target independently.
 Run creation and transfer as separate stages in one monitored cron job:
 
 ```cron
-15 3 * * * cd /opt/silent-relay && sh backup.sh && sh transfer-backup.sh >>/var/log/silentrelay-backup.log 2>&1
+15 3 * * * cd /opt/silent-relay && sh backup.sh && sh backup-transfer.sh >>/var/log/silentrelay-backup.log 2>&1
 ```
 
 Because of `&&`, transfer starts only after successful archive creation. A
