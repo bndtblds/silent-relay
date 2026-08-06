@@ -1,96 +1,11 @@
 {% extends "base.html" %}{% block content %}
-<header class="page-header"><div><span class="eyebrow">Administration · Systemeinstellungen</span><h1>Systemeinstellungen</h1><p>Hier verwalten Sie die Wartezeit für Meldungen und den technischen E-Mail-Versand der gesamten SilentRelay-Installation.</p></div><div class="actions"><a class="button secondary" href="/admin/accounts">Kontenübersicht</a><a class="button secondary" href="/admin/public-content">Öffentliche Angaben</a><form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Abmelden</button></form></div></header>
+<header class="page-header"><div><span class="eyebrow">Administration · Systemeinstellungen</span><h1>Allgemeine Einstellungen</h1><p>Steuern Sie die Kontoerstellung und das Widerrufsfenster für neue Meldungen.</p></div><div class="actions"><a class="button secondary" href="/admin/accounts">Kontenübersicht</a><a class="button secondary" href="/admin/public-content">Öffentliche Angaben</a><form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Abmelden</button></form></div></header>
+<nav class="settings-nav" aria-label="Systemeinstellungen"><a class="active" href="/admin/system" aria-current="page">Allgemein</a><a href="/admin/system/retention">Fristen und Aufbewahrung</a><a href="/admin/system/email">E-Mail</a></nav>
 
-{% if result == "saved" %}<p class="success-message">SMTP-Einstellungen wurden sicher gespeichert.</p>{% endif %}
-{% if result == "invalid" %}<p class="error">Bitte prüfen Sie Host, Port und Absenderadresse.</p>{% endif %}
-{% if result == "connection_ok" %}<p class="success-message">Die Verbindung zum SMTP-Server war erfolgreich.</p>{% endif %}
-{% if result == "connection_failed" %}<p class="error">Die Verbindung oder Anmeldung am SMTP-Server ist fehlgeschlagen.</p>{% endif %}
-{% if result == "email_ok" %}<p class="success-message">Die Test-E-Mail wurde vom SMTP-Server angenommen.</p>{% endif %}
-{% if result == "email_failed" %}<p class="error">Die Test-E-Mail konnte nicht versendet werden.</p>{% endif %}
-{% if result == "invalid_recipient" %}<p class="error">Die Empfängeradresse ist ungültig.</p>{% endif %}
-{% if result == "ndr_saved" %}<p class="success-message">Die automatische Verarbeitung von Zustellfehlern wurde aktiviert.</p>{% endif %}
-{% if result == "ndr_invalid" %}<p class="error">Bitte prüfen Sie IMAP-Server, Zugangsdaten und die bestätigte Postfachadresse.</p>{% endif %}
-{% if result == "ndr_disabled" %}<p class="success-message">Die automatische Verarbeitung eingehender Nachrichten wurde deaktiviert.</p>{% endif %}
-{% if result == "ndr_connection_ok" %}<p class="success-message">Die verschlüsselte IMAP-Verbindung zum technischen Postfach funktioniert. Es wurden keine Nachrichten gelesen oder gelöscht.</p>{% endif %}
-{% if result == "ndr_connection_failed" %}<p class="error">Die verschlüsselte IMAP-Verbindung oder Anmeldung ist fehlgeschlagen.</p>{% endif %}
-{% if result == "delay_saved" %}<p class="success-message">Die Wartezeit für neue Meldungen wurde gespeichert.</p>{% endif %}
-{% if result == "delay_invalid" %}<p class="error">Die Wartezeit muss zwischen 0 und {{ max_notification_delay_minutes }} Minuten liegen.</p>{% endif %}
-{% if result == "operations_saved" %}<p class="success-message">Die betrieblichen Einstellungen wurden gespeichert.</p>{% endif %}
-{% if result == "operations_invalid" %}<p class="error">Bitte prüfen Sie die betrieblichen Einstellungen und Fristen.</p>{% endif %}
+{% if result == "account_creation_saved" %}<p class="success-message">Die Einstellung zur Kontoerstellung wurde gespeichert.</p>{% endif %}
+{% if result == "delay_saved" %}<p class="success-message">Die Wartezeit für neue Meldungen wurde gespeichert.</p>{% elif result == "delay_invalid" %}<p class="error">Die Wartezeit muss zwischen 0 und {{ max_notification_delay_minutes }} Minuten liegen.</p>{% endif %}
 
-<section class="panel"><h2>Wartezeit und Widerruf</h2>
-  <p>Neue Meldungen bleiben während dieser Wartezeit in der Warteschlange und können von der Vertrauensperson widerrufen werden. Die Änderung gilt nicht für bereits eingereichte Meldungen. Bei 0 Minuten beginnt die Zustellung ohne zugesichertes Widerrufsfenster.</p>
-  <form class="compact-form" method="post" action="/admin/system/notification-delay">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>Wartezeit in Minuten<input type="number" name="minutes" min="0" max="{{ max_notification_delay_minutes }}" value="{{ notification_delay_minutes }}" required></label>
-    <button>Wartezeit speichern</button>
-  </form>
-</section>
+<section class="panel setting-card"><div><h2>Neue Konten</h2><p>Legt fest, ob Besucher auf der öffentlichen Startseite ein neues SilentRelay-Konto anlegen können. Bestehende Konten bleiben davon unberührt.</p></div><form method="post" action="/admin/system/account-creation"><input type="hidden" name="csrf" value="{{ csrf }}"><label class="switch-row"><span><strong>Kontoerstellung</strong><small>{{ "Neue Konten können erstellt werden." if system_config.account_creation_enabled else "Die Erstellung neuer Konten ist gesperrt." }}</small></span><span class="switch"><input type="checkbox" name="account_creation_enabled" value="yes" {% if system_config.account_creation_enabled %}checked{% endif %}><span aria-hidden="true"></span></span></label><button>Einstellung speichern</button></form></section>
 
-<section class="panel"><h2>Betrieb und Aufbewahrung</h2>
-  <p>Diese Werte steuern Kontoerstellung, regelmäßige Prüfungen und die Datenaufbewahrung der gesamten Installation.</p>
-  <form class="compact-form" method="post" action="/admin/system/operations">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label class="checkbox"><input type="checkbox" name="account_creation_enabled" value="yes" {% if system_config.account_creation_enabled %}checked{% endif %}> Erstellung neuer Konten erlauben</label>
-    <label>Unvollständige Konten löschen nach Tagen<input type="number" name="account_pending_retention_days" min="1" value="{{ system_config.account_pending_retention_days }}" required></label>
-    <label>Prüfungsintervall in Tagen<input type="number" name="account_review_interval_days" min="1" value="{{ system_config.account_review_interval_days }}" required></label>
-    <label>Erinnerungstage relativ zum Prüftermin<input name="account_review_reminder_days" value="{{ system_config.account_review_reminder_days }}" required><span class="form-hint">Kommagetrennt; negative Werte liegen vor dem Termin, zum Beispiel -30,-15,-3,0,30.</span></label>
-    <label>Karenzzeit nach Prüftermin in Tagen<input type="number" name="account_review_grace_days" min="0" value="{{ system_config.account_review_grace_days }}" required></label>
-    <label>Erinnerungsabstand bei problematischen Kontaktwegen in Tagen<input type="number" name="contact_problem_reminder_days" min="1" value="{{ system_config.contact_problem_reminder_days }}" required></label>
-    <label>Deaktivierte Konten löschen nach Tagen<input type="number" name="account_retention_after_disable_days" min="0" value="{{ system_config.account_retention_after_disable_days }}" required></label>
-    <label>Meldungsinhalt aufbewahren für Stunden<input type="number" name="message_retention_hours" min="1" value="{{ system_config.message_retention_hours }}" required></label>
-    <label>Auditprotokoll aufbewahren für Tage<input type="number" name="audit_retention_days" min="1" value="{{ system_config.audit_retention_days }}" required></label>
-    <button>Betriebliche Einstellungen speichern</button>
-  </form>
-</section>
-
-<section class="panel"><h2>E-Mail-Versand</h2>
-  <p>Die Daten erhalten Sie von Ihrem E-Mail-Anbieter oder Serveradministrator. Sie gelten für alle SilentRelay-Konten. Zugangsdaten werden verschlüsselt gespeichert und das Passwort wird niemals erneut angezeigt.</p>
-  <p><span class="badge {{ 'success' if stored_in_database else 'pending' }}">{{ "Konfiguriert" if stored_in_database else "Noch nicht konfiguriert" }}</span></p>
-  <form id="smtp-settings-form" class="compact-form" method="post" action="/admin/system/smtp">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>SMTP-Server<input name="host" value="{{ config.host }}" autocomplete="off" required></label>
-    <label>Port<input type="number" name="port" min="1" max="65535" value="{{ config.port }}" required></label>
-    <label>Benutzername<input name="username" value="{{ config.username }}" autocomplete="off"></label>
-    <label>Passwort<input type="password" name="password" autocomplete="new-password" placeholder="{{ 'Unverändert lassen' if password_configured else 'SMTP-Passwort eingeben' }}"></label>
-    <label class="checkbox"><input type="checkbox" name="starttls" value="yes" {% if config.starttls %}checked{% endif %}> Verschlüsselte Verbindung mit STARTTLS verwenden</label>
-    <label>Absenderadresse<input type="email" name="from_address" value="{{ config.from_address }}" required></label>
-    <label>Absendername<input name="from_name" value="{{ config.from_name }}" required></label>
-  </form>
-  <div class="actions settings-actions">
-    <button form="smtp-settings-form">Einstellungen speichern</button>
-    <form method="post" action="/admin/system/smtp/test-connection"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">SMTP-Verbindung testen</button></form>
-  </div>
-</section>
-
-<section class="panel"><h2>Zustellfehler automatisch erkennen</h2>
-  <p>SilentRelay kann Rückmeldungen des Mailservers auswerten und dadurch endgültig unzustellbare Kontaktwege erkennen. Dafür wird das Postfach der Absenderadresse über verschlüsseltes IMAP abgerufen.</p>
-  <p><span class="badge {{ 'success' if ndr_enabled else 'pending' }}">{{ "Aktiv" if ndr_enabled else "Nicht aktiv" }}</span></p>
-  <div class="warning">
-    <strong>Dieses Postfach wird vollständig von SilentRelay verwaltet.</strong>
-    <p>Sobald diese Funktion aktiv ist, löscht SilentRelay sämtliche eingehenden Nachrichten dauerhaft – einschließlich Antworten, Spam, unlesbarer Nachrichten und bereits verarbeiteter Zustellberichte. Verwenden Sie die Absenderadresse <strong>{{ config.from_address }}</strong> nicht für Support, persönliche Korrespondenz oder andere Zwecke.</p>
-  </div>
-  <form id="imap-settings-form" class="compact-form" method="post" action="/admin/system/ndr">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>IMAP-Server<input name="host" value="{{ imap_host }}" autocomplete="off" required></label>
-    <label>IMAP-Port<input type="number" name="port" min="1" max="65535" value="{{ imap_port }}" required></label>
-    <label>IMAP-Benutzername<input name="username" value="{{ imap_username }}" autocomplete="off" required></label>
-    <label>IMAP-Passwort<input type="password" name="password" autocomplete="new-password" placeholder="{{ 'Unverändert lassen' if imap_password_configured else 'IMAP-Passwort eingeben' }}"></label>
-    <label>Zur Bestätigung die technische Absenderadresse eingeben
-      <span class="form-hint">Geben Sie exakt <strong>{{ config.from_address }}</strong> ein. Damit bestätigen Sie, dass SilentRelay alle eingehenden Nachrichten dieses Postfachs dauerhaft löschen darf.</span>
-      <input type="email" name="acknowledged_address" autocomplete="off" required>
-    </label>
-  </form>
-  <div class="actions settings-actions">
-    <button form="imap-settings-form">Verarbeitung aktivieren und speichern</button>
-    {% if ndr_enabled %}
-    <form method="post" action="/admin/system/ndr/test-connection"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">IMAP-Verbindung ohne Löschung testen</button></form>
-    <form class="danger-action" method="post" action="/admin/system/ndr/disable"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Automatische Verarbeitung deaktivieren</button></form>
-    {% endif %}
-  </div>
-</section>
-
-<section class="panel"><h2>Test-E-Mail senden</h2><p>Sendet eine neutrale Testnachricht an die hier eingegebene Adresse.</p>
-  <form class="compact-form" method="post" action="/admin/system/smtp/test-email"><input type="hidden" name="csrf" value="{{ csrf }}"><label>Empfängeradresse<input type="email" name="recipient" required></label><button>Test-E-Mail senden</button></form>
-</section>
+<section class="panel setting-card"><div><h2>Wartezeit und Widerruf</h2><p>Neue Meldungen bleiben zunächst in der Warteschlange. Während dieser Zeit kann die Vertrauensperson die Meldung widerrufen. Bereits eingereichte Meldungen behalten ihre ursprüngliche Freigabezeit.</p></div><form class="compact-form" method="post" action="/admin/system/notification-delay"><input type="hidden" name="csrf" value="{{ csrf }}"><label>Wartezeit in Minuten<input type="number" name="minutes" min="0" max="{{ max_notification_delay_minutes }}" value="{{ notification_delay_minutes }}" required><span class="form-hint">Standard: 10 Minuten. Bei 0 Minuten beginnt die Zustellung ohne zugesichertes Widerrufsfenster.</span></label><button>Wartezeit speichern</button></form></section>
 {% endblock %}

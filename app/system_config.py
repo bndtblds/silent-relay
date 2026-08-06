@@ -47,10 +47,17 @@ def review_reminder_days(config: SystemConfiguration) -> list[int]:
     return sorted({int(value) for value in config.account_review_reminder_days.split(",")})
 
 
-def save_operational_settings(
+def save_account_creation(
+    db: Session, enabled: bool
+) -> SystemConfiguration:
+    stored = system_configuration(db)
+    stored.account_creation_enabled = enabled
+    return stored
+
+
+def save_retention_settings(
     db: Session,
     *,
-    account_creation_enabled: bool,
     account_pending_retention_days: int,
     account_review_interval_days: int,
     account_review_reminder_days: str,
@@ -81,7 +88,6 @@ def save_operational_settings(
     ):
         raise ValueError
     stored = system_configuration(db)
-    stored.account_creation_enabled = account_creation_enabled
     stored.account_pending_retention_days = account_pending_retention_days
     stored.account_review_interval_days = account_review_interval_days
     stored.account_review_reminder_days = ",".join(str(value) for value in reminder_days)

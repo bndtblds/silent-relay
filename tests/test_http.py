@@ -177,6 +177,12 @@ def test_complete_admin_area_uses_browser_language():
         assert "Technical account overview" in accounts.text
         assert "System settings" in accounts.text
         assert "System settings" in client.get("/admin/system", headers=headers).text
+        assert "Periods and retention" in client.get(
+            "/admin/system/retention", headers=headers
+        ).text
+        assert "SMTP server and sender" in client.get(
+            "/admin/system/email", headers=headers
+        ).text
         public = client.get("/admin/public-content?content_language=en", headers=headers)
         assert "Legal notice, privacy and contact details" in public.text
         assert "System settings" in public.text
@@ -812,7 +818,7 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
         system = client.get("/admin/system")
         assert system.status_code == 200
         assert "Systemeinstellungen" in system.text
-        assert "E-Mail-Versand" in system.text
+        assert "Allgemeine Einstellungen" in system.text
         assert 'name="minutes" min="0" max="1440" value="10"' in system.text
         csrf = hidden_value(system.text, "csrf")
 
@@ -823,13 +829,22 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
         )
         assert "Wartezeit für neue Meldungen wurde gespeichert" in delay.text
 
-        operations = client.post(
-            "/admin/system/operations",
+        account_creation = client.post(
+            "/admin/system/account-creation",
+            data={"csrf": csrf},
+            follow_redirects=True,
+        )
+        assert "Einstellung zur Kontoerstellung wurde gespeichert" in (
+            account_creation.text
+        )
+
+        retention = client.post(
+            "/admin/system/retention",
             data={
                 "csrf": csrf,
                 "account_pending_retention_days": "8",
                 "account_review_interval_days": "120",
-                "account_review_reminder_days": "30,-3,-3,0",
+                "reminder_day": ["30", "-3", "-3", "0", "", "", ""],
                 "account_review_grace_days": "45",
                 "contact_problem_reminder_days": "5",
                 "account_retention_after_disable_days": "300",
@@ -838,7 +853,11 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
             },
             follow_redirects=True,
         )
-        assert "betrieblichen Einstellungen wurden gespeichert" in operations.text
+        assert "Fristen und Aufbewahrungswerte wurden gespeichert" in retention.text
+
+        email_settings = client.get("/admin/system/email")
+        assert email_settings.status_code == 200
+        assert "SMTP-Server und Absender" in email_settings.text
 
         saved = client.post("/admin/system/smtp", data={
             "csrf": csrf,
@@ -868,7 +887,7 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
             follow_redirects=True,
         )
         assert "Verarbeitung von Zustellfehlern wurde aktiviert" in ndr.text
-        assert "IMAP-Verbindung ohne Löschung testen" in ndr.text
+        assert "IMAP ohne Löschung testen" in ndr.text
         ndr_connection = client.post(
             "/admin/system/ndr/test-connection",
             data={"csrf": csrf},

@@ -29,7 +29,8 @@ from app.smtp_config import (
 )
 from app.system_config import (
     MAX_NOTIFICATION_DELAY_MINUTES, notification_delay_minutes,
-    save_notification_delay, save_operational_settings,
+    review_reminder_days, save_account_creation, save_notification_delay,
+    save_retention_settings,
     system_configuration as load_system_configuration,
 )
 
@@ -145,6 +146,45 @@ def system_status(request: Request, db: Session = Depends(get_db), settings: Set
 @router.get("/system", response_class=HTMLResponse)
 def system_configuration(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
     admin_session(request, db, settings)
+    language = browser_language(request, settings.default_language)
+    return templates.TemplateResponse(
+        request, "adminsystem_en.html" if language == "en" else "adminsystem.html",
+        admin_context(
+            request, settings,
+            notification_delay_minutes=notification_delay_minutes(db),
+            max_notification_delay_minutes=MAX_NOTIFICATION_DELAY_MINUTES,
+            system_config=load_system_configuration(db),
+            csrf=request.cookies.get("sr_admin_csrf", ""),
+            result=request.query_params.get("result"),
+        ),
+    )
+
+
+@router.get("/system/retention", response_class=HTMLResponse)
+def retention_configuration(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    admin_session(request, db, settings)
+    config = load_system_configuration(db)
+    language = browser_language(request, settings.default_language)
+    return templates.TemplateResponse(
+        request,
+        "adminretention_en.html" if language == "en" else "adminretention.html",
+        admin_context(
+            request, settings,
+            system_config=config,
+            reminder_days=review_reminder_days(config),
+            csrf=request.cookies.get("sr_admin_csrf", ""),
+            result=request.query_params.get("result"),
+        ),
+    )
+
+
+@router.get("/system/email", response_class=HTMLResponse)
+def email_configuration(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
+    admin_session(request, db, settings)
     config = load_email_config(db, FieldCipher(settings.field_encryption_key))
     stored = db.get(SmtpConfiguration, "default")
     if config is None:
@@ -153,7 +193,7 @@ def system_configuration(request: Request, db: Session = Depends(get_db), settin
     ndr_config = load_ndr_config(db, settings, cipher)
     language = browser_language(request, settings.default_language)
     return templates.TemplateResponse(
-        request, "adminsystem_en.html" if language == "en" else "adminsystem.html",
+        request, "adminemail_en.html" if language == "en" else "adminemail.html",
         admin_context(
             request, settings,
             config=config,
@@ -170,9 +210,6 @@ def system_configuration(request: Request, db: Session = Depends(get_db), settin
                 if stored and stored.encrypted_imap_username else ""
             ),
             imap_password_configured=bool(stored and stored.encrypted_imap_password),
-            notification_delay_minutes=notification_delay_minutes(db),
-            max_notification_delay_minutes=MAX_NOTIFICATION_DELAY_MINUTES,
-            system_config=load_system_configuration(db),
             csrf=request.cookies.get("sr_admin_csrf", ""),
             result=request.query_params.get("result"),
         )
@@ -197,13 +234,27 @@ def update_notification_delay(
     return RedirectResponse("/admin/system?result=delay_saved", 303)
 
 
-@router.post("/system/operations")
-def update_operational_settings(
+@router.post("/system/account-creation")
+def update_account_creation(
     request: Request,
     account_creation_enabled: str | None = Form(None),
+    csrf: str = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    verify_admin_csrf(request, csrf, db, settings)
+    save_account_creation(db, account_creation_enabled == "yes")
+    audit(db, "account_creation_configuration_updated")
+    db.commit()
+    return RedirectResponse("/admin/system?result=account_creation_saved", 303)
+
+
+@router.post("/system/retention")
+def update_retention_settings(
+    request: Request,
     account_pending_retention_days: int = Form(...),
     account_review_interval_days: int = Form(...),
-    account_review_reminder_days: str = Form(...),
+    reminder_day: list[str] = Form(...),
     account_review_grace_days: int = Form(...),
     contact_problem_reminder_days: int = Form(...),
     account_retention_after_disable_days: int = Form(...),
@@ -215,12 +266,11 @@ def update_operational_settings(
 ):
     verify_admin_csrf(request, csrf, db, settings)
     try:
-        save_operational_settings(
+        save_retention_settings(
             db,
-            account_creation_enabled=account_creation_enabled == "yes",
             account_pending_retention_days=account_pending_retention_days,
             account_review_interval_days=account_review_interval_days,
-            account_review_reminder_days=account_review_reminder_days,
+            account_review_reminder_days=",".join(reminder_day),
             account_review_grace_days=account_review_grace_days,
             contact_problem_reminder_days=contact_problem_reminder_days,
             account_retention_after_disable_days=account_retention_after_disable_days,
@@ -228,10 +278,10 @@ def update_operational_settings(
             audit_retention_days=audit_retention_days,
         )
     except ValueError:
-        return RedirectResponse("/admin/system?result=operations_invalid", 303)
-    audit(db, "operational_configuration_updated")
+        return RedirectResponse("/admin/system/retention?result=retention_invalid", 303)
+    audit(db, "retention_configuration_updated")
     db.commit()
-    return RedirectResponse("/admin/system?result=operations_saved", 303)
+    return RedirectResponse("/admin/system/retention?result=retention_saved", 303)
 
 
 @router.get("/public-content", response_class=HTMLResponse)
@@ -335,10 +385,10 @@ def update_smtp(
             from_name=from_name,
         )
     except ValueError:
-        return RedirectResponse("/admin/system?result=invalid", 303)
+        return RedirectResponse("/admin/system/email?result=invalid", 303)
     audit(db, "smtp_configuration_updated")
     db.commit()
-    return RedirectResponse("/admin/system?result=saved", 303)
+    return RedirectResponse("/admin/system/email?result=saved", 303)
 
 
 @router.post("/system/smtp/test-connection")
@@ -353,8 +403,8 @@ def test_connection(
             raise ValueError
         test_smtp_connection(config)
     except Exception:
-        return RedirectResponse("/admin/system?result=connection_failed", 303)
-    return RedirectResponse("/admin/system?result=connection_ok", 303)
+        return RedirectResponse("/admin/system/email?result=connection_failed", 303)
+    return RedirectResponse("/admin/system/email?result=connection_ok", 303)
 
 
 @router.post("/system/ndr")
@@ -382,10 +432,10 @@ def update_ndr(
             acknowledged_address=acknowledged_address,
         )
     except ValueError:
-        return RedirectResponse("/admin/system?result=ndr_invalid", 303)
+        return RedirectResponse("/admin/system/email?result=ndr_invalid", 303)
     audit(db, "ndr_configuration_updated")
     db.commit()
-    return RedirectResponse("/admin/system?result=ndr_saved", 303)
+    return RedirectResponse("/admin/system/email?result=ndr_saved", 303)
 
 
 @router.post("/system/ndr/disable")
@@ -399,7 +449,7 @@ def disable_ndr(
     disable_ndr_config(db)
     audit(db, "ndr_configuration_disabled")
     db.commit()
-    return RedirectResponse("/admin/system?result=ndr_disabled", 303)
+    return RedirectResponse("/admin/system/email?result=ndr_disabled", 303)
 
 
 @router.post("/system/ndr/test-connection")
@@ -414,12 +464,12 @@ def test_ndr_connection(
         db, settings, FieldCipher(settings.field_encryption_key)
     )
     if not config:
-        return RedirectResponse("/admin/system?result=ndr_connection_failed", 303)
+        return RedirectResponse("/admin/system/email?result=ndr_connection_failed", 303)
     try:
         test_imap_connection(config)
     except Exception:
-        return RedirectResponse("/admin/system?result=ndr_connection_failed", 303)
-    return RedirectResponse("/admin/system?result=ndr_connection_ok", 303)
+        return RedirectResponse("/admin/system/email?result=ndr_connection_failed", 303)
+    return RedirectResponse("/admin/system/email?result=ndr_connection_ok", 303)
 
 
 @router.post("/system/smtp/test-email")
@@ -429,7 +479,7 @@ def test_email(
 ):
     verify_admin_csrf(request, csrf, db, settings)
     if "@" not in recipient or len(recipient) > 320:
-        return RedirectResponse("/admin/system?result=invalid_recipient", 303)
+        return RedirectResponse("/admin/system/email?result=invalid_recipient", 303)
     language = browser_language(request, settings.default_language)
     cipher = FieldCipher(settings.field_encryption_key)
     result = send_tracked_email(
@@ -440,7 +490,7 @@ def test_email(
     )
     db.commit()
     return RedirectResponse(
-        f"/admin/system?result={'email_ok' if result.successful else 'email_failed'}", 303
+        f"/admin/system/email?result={'email_ok' if result.successful else 'email_failed'}", 303
     )
 
 
