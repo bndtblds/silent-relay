@@ -25,7 +25,7 @@ from app.entitlements import (
     load_entitlement_provider,
     registration_policy,
 )
-from app.models import Account
+from app.models import Account, SystemConfiguration
 
 
 def csrf_from(response_text: str) -> str:
@@ -361,20 +361,18 @@ def test_denial_and_unavailable_pages_are_neutral_in_english():
 
 
 def test_closed_core_registration_does_not_call_provider():
-    settings = get_settings()
-    previous = settings.account_creation_enabled
     provider = CountingProvider()
-    try:
-        with TestClient(main.app) as client:
-            form = client.get("/account/create")
-            settings.account_creation_enabled = False
-            main.app.state.entitlement_provider = provider
-            response = client.post(
-                "/account/create",
-                data={"csrf": csrf_from(form.text), "language_code": "de"},
-            )
-    finally:
-        settings.account_creation_enabled = previous
+    with TestClient(main.app) as client:
+        form = client.get("/account/create")
+        with Session(engine) as db:
+            config = db.get(SystemConfiguration, "default")
+            config.account_creation_enabled = False
+            db.commit()
+        main.app.state.entitlement_provider = provider
+        response = client.post(
+            "/account/create",
+            data={"csrf": csrf_from(form.text), "language_code": "de"},
+        )
     assert response.status_code == 404
     assert provider.policy_calls == 0
     assert account_count() == 0

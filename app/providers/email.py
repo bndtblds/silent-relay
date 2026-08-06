@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 
-from app.config import Settings
 from app.providers.base import DeliveryResult
 
 
@@ -20,24 +19,11 @@ class EmailProviderConfig:
     from_address: str
     from_name: str
 
-    @classmethod
-    def from_settings(cls, settings: Settings) -> "EmailProviderConfig":
-        return cls(
-            host=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_username,
-            password=settings.smtp_password,
-            starttls=settings.smtp_starttls,
-            from_address=settings.smtp_from_address,
-            from_name=settings.smtp_from_name,
-        )
-
-
 class EmailNotificationProvider:
     channel = "email"
 
-    def __init__(self, settings: Settings, config: EmailProviderConfig | None = None):
-        self.config = config or EmailProviderConfig.from_settings(settings)
+    def __init__(self, config: EmailProviderConfig | None):
+        self.config = config
 
     def send(
         self,
@@ -47,6 +33,8 @@ class EmailNotificationProvider:
         *,
         envelope_token: str | None = None,
     ) -> DeliveryResult:
+        if self.config is None:
+            return DeliveryResult(False, error_class="email_not_configured")
         message = EmailMessage()
         message["From"] = formataddr((self.config.from_name, self.config.from_address))
         message["To"] = recipient

@@ -16,6 +16,7 @@ from app.rate_limit import purge_expired_rate_limits
 from app.security.core import FieldCipher, SessionManager, generate_token, keyed_hash
 from app.services import DeliveryService, LifecycleService
 from app.smtp_config import load_email_provider
+from app.system_config import system_configuration
 
 
 def run_jobs(settings: Settings) -> dict[str, int]:
@@ -27,6 +28,7 @@ def run_jobs(settings: Settings) -> dict[str, int]:
             db.rollback()
             ndr_reports = 0
         provider = load_email_provider(db, settings, cipher)
+        system_config = system_configuration(db)
         deliveries = DeliveryService(
             settings, cipher, {"email": provider}
         ).process_due(db)
@@ -122,7 +124,8 @@ def run_jobs(settings: Settings) -> dict[str, int]:
             db.commit()
 
         contact_problem_reminders = _send_contact_problem_reminders(
-            db, settings, cipher, provider, now
+            db, settings, cipher, provider, now,
+            system_config.contact_problem_reminder_days,
         )
         trusted_access_notices = _send_trusted_access_notices(
             db, settings, cipher, provider, now
@@ -171,9 +174,10 @@ def _ensure_contact_reviews(
 
 
 def _send_contact_problem_reminders(
-    db, settings: Settings, cipher: FieldCipher, provider, now: datetime
+    db, settings: Settings, cipher: FieldCipher, provider, now: datetime,
+    reminder_interval_days: int,
 ) -> int:
-    threshold = now - timedelta(days=settings.contact_problem_reminder_days)
+    threshold = now - timedelta(days=reminder_interval_days)
     accounts = list(db.scalars(select(Account).where(or_(
         Account.last_contact_problem_reminder_at.is_(None),
         Account.last_contact_problem_reminder_at <= threshold,

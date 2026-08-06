@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated
 from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -24,32 +23,16 @@ class Settings(BaseSettings):
     csrf_secret: str = Field(min_length=32)
     admin_username: str = "admin"
     admin_password_hash: str
-    smtp_host: str = "localhost"
-    smtp_port: int = 587
-    smtp_username: str = ""
-    smtp_password: str = ""
-    smtp_starttls: bool = True
-    smtp_from_address: str = "silent-relay@localhost"
-    smtp_from_name: str = "SilentRelay"
-    account_creation_enabled: bool = True
     entitlement_provider: str = "allow_all"
     entitlement_provider_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
     default_language: str = "en"
-    account_pending_retention_days: int = 7
-    account_review_interval_days: int = 180
-    account_review_reminder_days: Annotated[list[int], NoDecode] = [-30, -15, -3, 0, 30]
-    account_review_grace_days: int = 60
-    contact_problem_reminder_days: int = Field(default=7, gt=0)
-    account_retention_after_disable_days: int = 365
     delivery_max_attempts: int = 6
-    message_retention_hours: int = 48
     hsts_enabled: bool = True
     trusted_proxy_count: int = 0
     log_level: str = "INFO"
     secure_cookies: bool = True
     session_ttl_minutes: int = 30
     scheduler_interval_seconds: int = 60
-    audit_retention_days: int = 90
     rate_limit_window_seconds: int = 60
     rate_limit_default: int = 60
     rate_limit_login_window_seconds: int = 900
@@ -61,15 +44,6 @@ class Settings(BaseSettings):
     rate_limit_notification_window_seconds: int = 3600
     rate_limit_notification_attempts: int = 10
     rate_limit_max_buckets: int = 50000
-
-    @field_validator("account_review_reminder_days", mode="before")
-    @classmethod
-    def parse_reminder_days(cls, value: object) -> object:
-        if isinstance(value, str):
-            return sorted({int(part.strip()) for part in value.split(",") if part.strip()})
-        if isinstance(value, list):
-            return sorted(set(value))
-        return value
 
     @field_validator("default_language")
     @classmethod

@@ -22,7 +22,7 @@ from app.security.core import (
     FieldCipher, SessionManager, fingerprint, generate_token, hash_password,
     keyed_hash, verify_password,
 )
-from app.system_config import notification_delay_minutes
+from app.system_config import review_reminder_days, system_configuration
 
 
 def audit(db: Session, event: str, account_id: str | None = None, **metadata: object) -> None:
@@ -35,7 +35,7 @@ class AccountService:
         self.settings, self.cipher = settings, cipher
 
     def create(self, db: Session, language_code: str = "de") -> tuple[Account, str, str]:
-        if not self.settings.account_creation_enabled:
+        if not system_configuration(db).account_creation_enabled:
             raise PermissionError(translate(language_code, "home.closed"))
         account, account_owner_token, setup_token = (
             Account(language_code=normalize_language(language_code, self.settings.default_language)),
@@ -163,7 +163,8 @@ class AccountService:
             ))
         if account and account.status == AccountStatus.pending_verification:
             account.status, account.activated_at, account.last_reviewed_at = AccountStatus.active, now, now
-            self._create_review(db, account, now + timedelta(days=self.settings.account_review_interval_days))
+            config = system_configuration(db)
+            self._create_review(db, account, now + timedelta(days=config.account_review_interval_days))
         elif account and current_contact_review:
             self._finish_review_if_complete(db, account, current_contact_review.account_review_id, now)
         audit(db, "contact_verified", contact.account_id)
@@ -174,10 +175,11 @@ class AccountService:
         review = AccountReview(account_id=account.id, review_due_at=due)
         db.add(review)
         db.flush()
-        for day in sorted(set(self.settings.account_review_reminder_days)):
+        config = system_configuration(db)
+        for day in review_reminder_days(config):
             db.add(ReviewReminder(account_review_id=review.id, relative_day=day, scheduled_at=due + timedelta(days=day)))
         account.next_review_due_at = due
-        account.review_grace_due_at = due + timedelta(days=self.settings.account_review_grace_days)
+        account.review_grace_due_at = due + timedelta(days=config.account_review_grace_days)
         return review
 
     def confirm_review(self, db: Session, account: Account) -> bool:
@@ -232,7 +234,7 @@ class AccountService:
         account.last_reviewed_at = now
         account.last_contact_problem_reminder_at = None
         self._create_review(
-            db, account, now + timedelta(days=self.settings.account_review_interval_days)
+            db, account, now + timedelta(days=system_configuration(db).account_review_interval_days)
         )
         audit(db, "review_confirmed", account.id)
         return True
@@ -467,12 +469,13 @@ class NotificationService:
         message = self.cipher.decrypt(submission.encrypted_message)
         digest = keyed_hash(message, self.settings.fingerprint_hmac_key)
         now = datetime.utcnow()
-        release_at = now + timedelta(minutes=notification_delay_minutes(db))
+        config = system_configuration(db)
+        release_at = now + timedelta(minutes=config.notification_delay_minutes)
         notification = Notification(
             account_id=account.id, trusted_person_id=person.id, status=NotificationStatus.queued,
             message_digest=digest, encrypted_message_payload=self.cipher.encrypt(message),
             release_at=release_at,
-            expires_at=release_at + timedelta(hours=self.settings.message_retention_hours),
+            expires_at=release_at + timedelta(hours=config.message_retention_hours),
             deduplication_key=submission.id_hash,
         )
         db.add(notification)
@@ -740,12 +743,13 @@ class LifecycleService:
             account.status = AccountStatus.overdue
         for account in db.scalars(select(Account).where(Account.status == AccountStatus.overdue, Account.review_grace_due_at <= now)):
             account.status, account.disabled_at = AccountStatus.disabled, now
-            account.deletion_due_at = now + timedelta(days=self.settings.account_retention_after_disable_days)
+            config = system_configuration(db)
+            account.deletion_due_at = now + timedelta(days=config.account_retention_after_disable_days)
         for account in db.scalars(select(Account).where(Account.status == AccountStatus.disabled, Account.deletion_due_at <= now)):
             account.status = AccountStatus.scheduled_for_deletion
         expired = list(db.scalars(select(Account).where(
             Account.status == AccountStatus.pending_verification,
-            Account.created_at <= now - timedelta(days=self.settings.account_pending_retention_days),
+            Account.created_at <= now - timedelta(days=system_configuration(db).account_pending_retention_days),
         )))
         for account in expired:
             db.delete(account)
@@ -771,5 +775,5 @@ class LifecycleService:
                 delivery.encrypted_error_detail = self.cipher.encrypt(
                     "notification_expired"
                 )
-        db.execute(delete(AuditLog).where(AuditLog.created_at <= now - timedelta(days=self.settings.audit_retention_days)))
+        db.execute(delete(AuditLog).where(AuditLog.created_at <= now - timedelta(days=system_configuration(db).audit_retention_days)))
         db.commit()

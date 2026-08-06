@@ -127,18 +127,20 @@ domains redirect to the primary domain.
 1. Sign in to `/admin/login`.
 2. Open the system settings.
 3. Review the notification waiting period. The default is ten minutes.
-4. Enter the SMTP server details.
-5. Test the SMTP connection.
-6. Send a test email.
-7. If the sender address is a dedicated technical mailbox, configure automatic
+4. Review account creation, review intervals, reminders, and retention periods.
+5. Enter the SMTP server details. SMTP is configured only in this administration
+   page and has no `.env` fallback.
+6. Test the SMTP connection.
+7. Send a test email.
+8. If the sender address is a dedicated technical mailbox, configure automatic
    delivery-failure detection as described below.
-8. Open **Public information** in the administration area.
-9. Add the operator's reviewed imprint, privacy information, and public contact
+9. Open **Public information** in the administration area.
+10. Add the operator's reviewed imprint, privacy information, and public contact
    address for German and English. If one version is missing, visitors see the
    configured fallback language together with a clear notice.
-10. Open the public imprint, privacy, and contact pages from the footer and
+11. Open the public imprint, privacy, and contact pages from the footer and
    verify their content.
-11. Open the public start page and create the first SilentRelay account.
+12. Open the public start page and create the first SilentRelay account.
 
 SMTP is deliberately checked separately. A temporary mail-server failure does
 not take the SilentRelay website offline.
@@ -240,8 +242,8 @@ delivery reports still invalidate an address immediately.
 
 As long as an address is undeliverable or its regular confirmation has
 expired, SilentRelay reminds every other confirmed account-owner address.
-`CONTACT_PROBLEM_REMINDER_DAYS` in `.env` controls the interval and defaults
-to seven days. The account owner should therefore add at least two personal
+The reminder interval is configured under **System settings** and defaults to
+seven days. The account owner should therefore add at least two personal
 addresses. With only one address, SilentRelay works but cannot notify the
 account owner if that address fails.
 

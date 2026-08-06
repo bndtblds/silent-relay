@@ -99,7 +99,9 @@ docker compose version
    SilentRelay, initializes the database, and checks the application.
 
 4. Open `https://your-domain.example/admin/login` and sign in.
-5. Configure and test SMTP under system settings. Optionally enable automatic
+5. Review the operational and retention settings, then configure and test SMTP
+   under system settings. SMTP is stored only in the application database.
+   Optionally enable automatic
    delivery-failure detection for the same dedicated technical mailbox.
 6. Add the deployment's imprint, privacy information, and public contact
    address under public information.

@@ -32,7 +32,8 @@ def test_smtp_configuration_is_encrypted_and_loadable(db, settings, cipher):
     assert b"smtp-secret" not in raw_values
     assert b"relay@example.org" not in raw_values
 
-    loaded = load_email_config(db, settings, cipher)
+    loaded = load_email_config(db, cipher)
+    assert loaded is not None
     assert loaded.host == "smtp.example.org"
     assert loaded.password == "smtp-secret"
     assert loaded.from_address == "relay@example.org"
@@ -49,7 +50,8 @@ def test_blank_password_preserves_existing_secret(db, settings, cipher):
         password=None, starttls=False,
         from_address="relay@example.org", from_name="SilentRelay",
     )
-    loaded = load_email_config(db, settings, cipher)
+    loaded = load_email_config(db, cipher)
+    assert loaded is not None
     assert loaded.host == "smtp2.example.org"
     assert loaded.password == "existing-secret"
 

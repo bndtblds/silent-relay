@@ -57,7 +57,6 @@ def test_generated_environment_loads_as_application_settings(tmp_path, monkeypat
         "SESSION_SECRET",
         "CSRF_SECRET",
         "ADMIN_PASSWORD_HASH",
-        "ACCOUNT_REVIEW_REMINDER_DAYS",
     ):
         monkeypatch.delenv(name, raising=False)
     target = tmp_path / ".env"
@@ -74,7 +73,6 @@ def test_generated_environment_loads_as_application_settings(tmp_path, monkeypat
     settings = Settings(_env_file=target)
 
     assert settings.app_base_url == "https://relay.example.org"
-    assert settings.account_review_reminder_days == [-30, -15, -3, 0, 30]
     assert verify_password(settings.admin_password_hash, "correct horse battery")
 
 

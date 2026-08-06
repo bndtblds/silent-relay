@@ -54,10 +54,9 @@ ENTITLEMENT_PROVIDER=allow_all
 ENTITLEMENT_PROVIDER_TIMEOUT_SECONDS=2
 ```
 
-`allow_all` preserves the normal `ACCOUNT_CREATION_ENABLED` behavior and makes
-no external checks. Existing installations that omit both entitlement settings
-therefore keep their previous behavior without changing `.env`. The timeout
-must be greater than zero and no greater than 30 seconds.
+`allow_all` makes no external checks. Whether account creation is available is
+controlled separately under **System settings** in the administration area.
+The timeout must be greater than zero and no greater than 30 seconds.
 
 An alternative provider must already be installed in the application
 environment and is selected with an explicit module and factory:
@@ -84,8 +83,8 @@ calls.
 ## Runtime failure behavior
 
 SilentRelay consults the provider after validating the public form and before
-calling `AccountService.create()`. `ACCOUNT_CREATION_ENABLED=false` is checked
-first and prevents the provider from being called.
+calling `AccountService.create()`. Disabled account creation in **System
+settings** is checked first and prevents the provider from being called.
 
 - `allow`: the existing core service creates the account.
 - `deny`: SilentRelay returns a neutral HTTP 403 response and creates no

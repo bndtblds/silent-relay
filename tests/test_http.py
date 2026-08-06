@@ -823,6 +823,23 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
         )
         assert "Wartezeit für neue Meldungen wurde gespeichert" in delay.text
 
+        operations = client.post(
+            "/admin/system/operations",
+            data={
+                "csrf": csrf,
+                "account_pending_retention_days": "8",
+                "account_review_interval_days": "120",
+                "account_review_reminder_days": "30,-3,-3,0",
+                "account_review_grace_days": "45",
+                "contact_problem_reminder_days": "5",
+                "account_retention_after_disable_days": "300",
+                "message_retention_hours": "72",
+                "audit_retention_days": "60",
+            },
+            follow_redirects=True,
+        )
+        assert "betrieblichen Einstellungen wurden gespeichert" in operations.text
+
         saved = client.post("/admin/system/smtp", data={
             "csrf": csrf,
             "host": "smtp.example.org",
@@ -883,7 +900,12 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
     with Session(engine) as db:
         stored = db.get(SmtpConfiguration, "default")
         assert b"secret-password" not in stored.encrypted_password
-        assert db.get(SystemConfiguration, "default").notification_delay_minutes == 90
+        config = db.get(SystemConfiguration, "default")
+        assert config.notification_delay_minutes == 90
+        assert config.account_creation_enabled is False
+        assert config.account_review_interval_days == 120
+        assert config.account_review_reminder_days == "-3,0,30"
+        assert config.message_retention_hours == 72
 
 
 def test_admin_can_publish_escaped_operator_information():

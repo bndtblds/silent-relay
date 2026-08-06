@@ -20,6 +20,7 @@ from app.public_site import (
     load_public_site_content, public_site_content_is_complete,
     save_public_site_content,
 )
+from app.providers.email import EmailProviderConfig
 from app.security.core import FieldCipher, SessionManager, verify_password
 from app.services import audit
 from app.smtp_config import (
@@ -28,7 +29,8 @@ from app.smtp_config import (
 )
 from app.system_config import (
     MAX_NOTIFICATION_DELAY_MINUTES, notification_delay_minutes,
-    save_notification_delay,
+    save_notification_delay, save_operational_settings,
+    system_configuration as load_system_configuration,
 )
 
 router = APIRouter(prefix="/admin")
@@ -135,7 +137,7 @@ def system_status(request: Request, db: Session = Depends(get_db), settings: Set
     configured = db.get(SmtpConfiguration, "default")
     return {
         "database": "ready",
-        "smtp_configured": bool(configured or (settings.smtp_host and settings.smtp_from_address)),
+        "smtp_configured": bool(configured),
         "scheduler_interval_seconds": settings.scheduler_interval_seconds,
     }
 
@@ -143,8 +145,10 @@ def system_status(request: Request, db: Session = Depends(get_db), settings: Set
 @router.get("/system", response_class=HTMLResponse)
 def system_configuration(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
     admin_session(request, db, settings)
-    config = load_email_config(db, settings, FieldCipher(settings.field_encryption_key))
+    config = load_email_config(db, FieldCipher(settings.field_encryption_key))
     stored = db.get(SmtpConfiguration, "default")
+    if config is None:
+        config = EmailProviderConfig("", 587, "", "", True, "", "SilentRelay")
     cipher = FieldCipher(settings.field_encryption_key)
     ndr_config = load_ndr_config(db, settings, cipher)
     language = browser_language(request, settings.default_language)
@@ -153,7 +157,7 @@ def system_configuration(request: Request, db: Session = Depends(get_db), settin
         admin_context(
             request, settings,
             config=config,
-            password_configured=bool((stored and stored.encrypted_password) or settings.smtp_password),
+            password_configured=bool(stored and stored.encrypted_password),
             stored_in_database=bool(stored),
             ndr_enabled=bool(ndr_config),
             imap_host=(
@@ -168,6 +172,7 @@ def system_configuration(request: Request, db: Session = Depends(get_db), settin
             imap_password_configured=bool(stored and stored.encrypted_imap_password),
             notification_delay_minutes=notification_delay_minutes(db),
             max_notification_delay_minutes=MAX_NOTIFICATION_DELAY_MINUTES,
+            system_config=load_system_configuration(db),
             csrf=request.cookies.get("sr_admin_csrf", ""),
             result=request.query_params.get("result"),
         )
@@ -190,6 +195,43 @@ def update_notification_delay(
     audit(db, "notification_delay_updated")
     db.commit()
     return RedirectResponse("/admin/system?result=delay_saved", 303)
+
+
+@router.post("/system/operations")
+def update_operational_settings(
+    request: Request,
+    account_creation_enabled: str | None = Form(None),
+    account_pending_retention_days: int = Form(...),
+    account_review_interval_days: int = Form(...),
+    account_review_reminder_days: str = Form(...),
+    account_review_grace_days: int = Form(...),
+    contact_problem_reminder_days: int = Form(...),
+    account_retention_after_disable_days: int = Form(...),
+    message_retention_hours: int = Form(...),
+    audit_retention_days: int = Form(...),
+    csrf: str = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    verify_admin_csrf(request, csrf, db, settings)
+    try:
+        save_operational_settings(
+            db,
+            account_creation_enabled=account_creation_enabled == "yes",
+            account_pending_retention_days=account_pending_retention_days,
+            account_review_interval_days=account_review_interval_days,
+            account_review_reminder_days=account_review_reminder_days,
+            account_review_grace_days=account_review_grace_days,
+            contact_problem_reminder_days=contact_problem_reminder_days,
+            account_retention_after_disable_days=account_retention_after_disable_days,
+            message_retention_hours=message_retention_hours,
+            audit_retention_days=audit_retention_days,
+        )
+    except ValueError:
+        return RedirectResponse("/admin/system?result=operations_invalid", 303)
+    audit(db, "operational_configuration_updated")
+    db.commit()
+    return RedirectResponse("/admin/system?result=operations_saved", 303)
 
 
 @router.get("/public-content", response_class=HTMLResponse)
@@ -306,7 +348,10 @@ def test_connection(
 ):
     verify_admin_csrf(request, csrf, db, settings)
     try:
-        test_smtp_connection(load_email_config(db, settings, FieldCipher(settings.field_encryption_key)))
+        config = load_email_config(db, FieldCipher(settings.field_encryption_key))
+        if config is None:
+            raise ValueError
+        test_smtp_connection(config)
     except Exception:
         return RedirectResponse("/admin/system?result=connection_failed", 303)
     return RedirectResponse("/admin/system?result=connection_ok", 303)

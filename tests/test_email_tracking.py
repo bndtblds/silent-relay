@@ -350,7 +350,6 @@ def test_smtp_visible_from_stays_stable_while_envelope_sender_is_correlated(
 
     monkeypatch.setattr("app.providers.email.smtplib.SMTP", FakeSmtp)
     provider = EmailNotificationProvider(
-        settings,
         EmailProviderConfig(
             host="smtp.example.org",
             port=25,

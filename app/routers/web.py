@@ -40,7 +40,7 @@ from app.security.core import (
 )
 from app.services import AccountService, AuthenticationService, DeliveryService, ManagementService, NotificationService
 from app.smtp_config import load_email_provider
-from app.system_config import notification_delay_minutes
+from app.system_config import notification_delay_minutes, system_configuration
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -130,11 +130,11 @@ def trusted_csrf_guard(
 
 
 @router.get("/", response_class=HTMLResponse)
-def index(request: Request, settings: Settings = Depends(get_settings)):
+def index(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
     language = browser_language(request, settings.default_language, allow_query=True)
     return templates.TemplateResponse(
         request, "index.html",
-        context(request, language, creation_enabled=settings.account_creation_enabled),
+        context(request, language, creation_enabled=system_configuration(db).account_creation_enabled),
     )
 
 
@@ -200,7 +200,7 @@ def contact(
 
 @router.get("/account/create", response_class=HTMLResponse)
 def create_form(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    if not settings.account_creation_enabled:
+    if not system_configuration(db).account_creation_enabled:
         raise HTTPException(404)
     language = browser_language(request, settings.default_language, allow_query=True)
     return public_form_response(request, db, settings, "create.html", language=language)
@@ -214,7 +214,7 @@ async def create_account(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    if not settings.account_creation_enabled:
+    if not system_configuration(db).account_creation_enabled:
         raise HTTPException(404)
     public_csrf_guard(request, db, settings, csrf)
     language = normalize_language(language_code, settings.default_language)

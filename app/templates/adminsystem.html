@@ -15,6 +15,8 @@
 {% if result == "ndr_connection_failed" %}<p class="error">Die verschlüsselte IMAP-Verbindung oder Anmeldung ist fehlgeschlagen.</p>{% endif %}
 {% if result == "delay_saved" %}<p class="success-message">Die Wartezeit für neue Meldungen wurde gespeichert.</p>{% endif %}
 {% if result == "delay_invalid" %}<p class="error">Die Wartezeit muss zwischen 0 und {{ max_notification_delay_minutes }} Minuten liegen.</p>{% endif %}
+{% if result == "operations_saved" %}<p class="success-message">Die betrieblichen Einstellungen wurden gespeichert.</p>{% endif %}
+{% if result == "operations_invalid" %}<p class="error">Bitte prüfen Sie die betrieblichen Einstellungen und Fristen.</p>{% endif %}
 
 <section class="panel"><h2>Wartezeit und Widerruf</h2>
   <p>Neue Meldungen bleiben während dieser Wartezeit in der Warteschlange und können von der Vertrauensperson widerrufen werden. Die Änderung gilt nicht für bereits eingereichte Meldungen. Bei 0 Minuten beginnt die Zustellung ohne zugesichertes Widerrufsfenster.</p>
@@ -25,9 +27,26 @@
   </form>
 </section>
 
+<section class="panel"><h2>Betrieb und Aufbewahrung</h2>
+  <p>Diese Werte steuern Kontoerstellung, regelmäßige Prüfungen und die Datenaufbewahrung der gesamten Installation.</p>
+  <form class="compact-form" method="post" action="/admin/system/operations">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="checkbox"><input type="checkbox" name="account_creation_enabled" value="yes" {% if system_config.account_creation_enabled %}checked{% endif %}> Erstellung neuer Konten erlauben</label>
+    <label>Unvollständige Konten löschen nach Tagen<input type="number" name="account_pending_retention_days" min="1" value="{{ system_config.account_pending_retention_days }}" required></label>
+    <label>Prüfungsintervall in Tagen<input type="number" name="account_review_interval_days" min="1" value="{{ system_config.account_review_interval_days }}" required></label>
+    <label>Erinnerungstage relativ zum Prüftermin<input name="account_review_reminder_days" value="{{ system_config.account_review_reminder_days }}" required><span class="form-hint">Kommagetrennt; negative Werte liegen vor dem Termin, zum Beispiel -30,-15,-3,0,30.</span></label>
+    <label>Karenzzeit nach Prüftermin in Tagen<input type="number" name="account_review_grace_days" min="0" value="{{ system_config.account_review_grace_days }}" required></label>
+    <label>Erinnerungsabstand bei problematischen Kontaktwegen in Tagen<input type="number" name="contact_problem_reminder_days" min="1" value="{{ system_config.contact_problem_reminder_days }}" required></label>
+    <label>Deaktivierte Konten löschen nach Tagen<input type="number" name="account_retention_after_disable_days" min="0" value="{{ system_config.account_retention_after_disable_days }}" required></label>
+    <label>Meldungsinhalt aufbewahren für Stunden<input type="number" name="message_retention_hours" min="1" value="{{ system_config.message_retention_hours }}" required></label>
+    <label>Auditprotokoll aufbewahren für Tage<input type="number" name="audit_retention_days" min="1" value="{{ system_config.audit_retention_days }}" required></label>
+    <button>Betriebliche Einstellungen speichern</button>
+  </form>
+</section>
+
 <section class="panel"><h2>E-Mail-Versand</h2>
   <p>Die Daten erhalten Sie von Ihrem E-Mail-Anbieter oder Serveradministrator. Sie gelten für alle SilentRelay-Konten. Zugangsdaten werden verschlüsselt gespeichert und das Passwort wird niemals erneut angezeigt.</p>
-  <p><span class="badge {{ 'success' if stored_in_database else 'pending' }}">{{ "Individuell konfiguriert" if stored_in_database else "Umgebungsvariablen/Standardwerte aktiv" }}</span></p>
+  <p><span class="badge {{ 'success' if stored_in_database else 'pending' }}">{{ "Konfiguriert" if stored_in_database else "Noch nicht konfiguriert" }}</span></p>
   <form id="smtp-settings-form" class="compact-form" method="post" action="/admin/system/smtp">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label>SMTP-Server<input name="host" value="{{ config.host }}" autocomplete="off" required></label>

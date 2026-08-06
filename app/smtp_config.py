@@ -23,10 +23,10 @@ class ImapNdrConfig:
     from_address: str
 
 
-def load_email_config(db: Session, settings: Settings, cipher: FieldCipher) -> EmailProviderConfig:
+def load_email_config(db: Session, cipher: FieldCipher) -> EmailProviderConfig | None:
     stored = db.get(SmtpConfiguration, "default")
     if not stored:
-        return EmailProviderConfig.from_settings(settings)
+        return None
     return EmailProviderConfig(
         host=cipher.decrypt(stored.encrypted_host),
         port=stored.port,
@@ -39,7 +39,7 @@ def load_email_config(db: Session, settings: Settings, cipher: FieldCipher) -> E
 
 
 def load_email_provider(db: Session, settings: Settings, cipher: FieldCipher) -> EmailNotificationProvider:
-    return EmailNotificationProvider(settings, load_email_config(db, settings, cipher))
+    return EmailNotificationProvider(load_email_config(db, cipher))
 
 
 def save_email_config(
@@ -100,7 +100,9 @@ def load_ndr_config(
     stored = db.get(SmtpConfiguration, "default")
     if not stored or not stored.ndr_enabled:
         return None
-    email_config = load_email_config(db, settings, cipher)
+    email_config = load_email_config(db, cipher)
+    if email_config is None:
+        return None
     expected_fingerprint = fingerprint(
         email_config.from_address.strip().casefold(), settings.fingerprint_hmac_key
     )
@@ -135,7 +137,9 @@ def save_ndr_config(
     stored = db.get(SmtpConfiguration, "default")
     if not stored:
         raise ValueError("Configure SMTP first.")
-    email_config = load_email_config(db, settings, cipher)
+    email_config = load_email_config(db, cipher)
+    if email_config is None:
+        raise ValueError("Configure SMTP first.")
     host = host.strip()
     username = username.strip()
     acknowledged_address = acknowledged_address.strip().casefold()

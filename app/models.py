@@ -303,6 +303,15 @@ class SystemConfiguration(Base):
     __tablename__ = "system_configurations"
     id: Mapped[str] = mapped_column(String(16), primary_key=True, default="default")
     notification_delay_minutes: Mapped[int] = mapped_column(Integer, default=10)
+    account_creation_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    account_pending_retention_days: Mapped[int] = mapped_column(Integer, default=7)
+    account_review_interval_days: Mapped[int] = mapped_column(Integer, default=180)
+    account_review_reminder_days: Mapped[str] = mapped_column(String(128), default="-30,-15,-3,0,30")
+    account_review_grace_days: Mapped[int] = mapped_column(Integer, default=60)
+    contact_problem_reminder_days: Mapped[int] = mapped_column(Integer, default=7)
+    account_retention_after_disable_days: Mapped[int] = mapped_column(Integer, default=365)
+    message_retention_hours: Mapped[int] = mapped_column(Integer, default=48)
+    audit_retention_days: Mapped[int] = mapped_column(Integer, default=90)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 

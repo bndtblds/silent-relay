@@ -77,6 +77,9 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert "release_at" in notification_columns
     assert "cancelled_at" in notification_columns
     assert system_configuration_columns["notification_delay_minutes"] == "'10'"
+    assert system_configuration_columns["account_creation_enabled"] == "1"
+    assert system_configuration_columns["account_review_interval_days"] == "'180'"
+    assert system_configuration_columns["message_retention_hours"] == "'48'"
     assert revision == "0009"
 
 

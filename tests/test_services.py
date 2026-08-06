@@ -160,7 +160,8 @@ def test_owner_link_rotation_revokes_only_affected_account_owner_sessions(
 
 
 def test_review_days_are_sorted_and_deduplicated(db, settings, cipher):
-    settings.account_review_reminder_days = [30, -3, -3, 0]
+    config = db.get(SystemConfiguration, "default")
+    config.account_review_reminder_days = "30,-3,-3,0"
     account = active_account(db, settings, cipher)
     reminders = list(db.scalars(select(ReviewReminder)))
     assert sorted(r.relative_day for r in reminders) == [-3, 0, 30]
