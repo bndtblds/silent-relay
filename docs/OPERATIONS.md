@@ -424,6 +424,43 @@ docker compose logs --tail=100 caddy web scheduler
 
 Then open the public website and test the area affected by the update.
 
+### Update pinned container base images
+
+The Python and Caddy image references retain their readable tags but are pinned
+to multi-platform image-index digests. Docker therefore uses the reviewed image
+content even if an upstream tag later changes, while selecting the correct
+image for the host architecture.
+
+Update a pin deliberately rather than removing its digest:
+
+1. Review the upstream Python or Caddy release notes and security information.
+2. Resolve the current multi-platform digest for the intended tag:
+
+   ```sh
+   docker buildx imagetools inspect python:3.12-slim
+   docker buildx imagetools inspect caddy:2-alpine
+   ```
+
+3. Replace the complete `sha256:` value after `@` in `Dockerfile` or
+   `docker-compose.yml`. Keep the reviewed tag unchanged unless the version
+   change is intentional too.
+4. Run the automated tests, render the Compose configuration, and rebuild the
+   deployment:
+
+   ```sh
+   uv run pytest
+   docker compose config --quiet
+   docker compose build
+   ```
+
+5. Start the deployment in a test environment and verify readiness and the
+   affected service before releasing the change. Record the tag and digest
+   together in the review or release notes.
+
+The digest shown on the top-level `Digest:` line is the multi-platform index
+digest. Do not substitute an architecture-specific manifest digest unless the
+deployment is intentionally restricted to that architecture.
+
 The update keeps:
 
 - `/opt/silent-relay/.env`;
