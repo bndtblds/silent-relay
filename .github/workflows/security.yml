@@ -1,0 +1,214 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APPLICATION_IMAGE: silent-relay:${{ github.sha }}
+  TRIVY_VERSION: v0.73.0
+
+jobs:
+  vulnerability-scan-and-sbom:
+    name: Vulnerability scan and SBOM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Prepare report directory and image references
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p security-reports
+          caddy_image="$(docker compose config --images | grep '^caddy:')"
+          test -n "$caddy_image"
+          printf 'CADDY_IMAGE=%s\n' "$caddy_image" >> "$GITHUB_ENV"
+
+      - name: Build application image
+        run: docker build --tag "$APPLICATION_IMAGE" .
+
+      - name: Pull pinned Caddy image
+        run: docker pull "$CADDY_IMAGE"
+
+      - name: Scan locked dependencies for reporting
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: sarif
+          output: security-reports/dependencies.sarif
+          exit-code: "0"
+
+      - name: Scan application image for reporting
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: ${{ env.APPLICATION_IMAGE }}
+          scanners: vuln
+          format: sarif
+          output: security-reports/application-image.sarif
+          exit-code: "0"
+
+      - name: Scan Caddy image for reporting
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: ${{ env.CADDY_IMAGE }}
+          scanners: vuln
+          format: sarif
+          output: security-reports/caddy-image.sarif
+          exit-code: "0"
+
+      - name: Upload dependency scan to GitHub code scanning
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@f52b05f4acaaa234e44466e66d29050e135ea9ef # v4.36.0
+        with:
+          sarif_file: security-reports/dependencies.sarif
+          category: trivy-dependencies
+
+      - name: Upload application image scan to GitHub code scanning
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@f52b05f4acaaa234e44466e66d29050e135ea9ef # v4.36.0
+        with:
+          sarif_file: security-reports/application-image.sarif
+          category: trivy-application-image
+
+      - name: Upload Caddy image scan to GitHub code scanning
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@f52b05f4acaaa234e44466e66d29050e135ea9ef # v4.36.0
+        with:
+          sarif_file: security-reports/caddy-image.sarif
+          category: trivy-caddy-image
+
+      - name: Generate dependency SBOM
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: cyclonedx
+          output: security-reports/dependencies.cdx.json
+
+      - name: Generate application image SBOM
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: ${{ env.APPLICATION_IMAGE }}
+          scanners: vuln
+          format: cyclonedx
+          output: security-reports/application-image.cdx.json
+
+      - name: Generate Caddy image SBOM
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: ${{ env.CADDY_IMAGE }}
+          scanners: vuln
+          format: cyclonedx
+          output: security-reports/caddy-image.cdx.json
+
+      - name: Record scan metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            printf 'repository=%s\n' "$GITHUB_REPOSITORY"
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'ref=%s\n' "$GITHUB_REF"
+            printf 'run_id=%s\n' "$GITHUB_RUN_ID"
+            printf 'trivy_version=%s\n' "$TRIVY_VERSION"
+            printf 'application_image=%s\n' "$APPLICATION_IMAGE"
+            docker image inspect --format 'application_image_id={{.Id}}' "$APPLICATION_IMAGE"
+            printf 'caddy_image=%s\n' "$CADDY_IMAGE"
+            docker image inspect --format 'caddy_image_id={{.Id}}' "$CADDY_IMAGE"
+          } > security-reports/metadata.txt
+
+      - name: Upload security reports and SBOMs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-reports-${{ github.sha }}
+          path: security-reports/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Enforce dependency vulnerability policy
+        id: dependency-policy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Enforce application image vulnerability policy
+        id: application-policy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: ${{ env.APPLICATION_IMAGE }}
+          scanners: vuln
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Enforce Caddy image vulnerability policy
+        id: caddy-policy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: ${{ env.CADDY_IMAGE }}
+          scanners: vuln
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Evaluate vulnerability policy
+        if: always()
+        shell: bash
+        env:
+          DEPENDENCY_OUTCOME: ${{ steps.dependency-policy.outcome }}
+          APPLICATION_OUTCOME: ${{ steps.application-policy.outcome }}
+          CADDY_OUTCOME: ${{ steps.caddy-policy.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$DEPENDENCY_OUTCOME" != success || \
+                "$APPLICATION_OUTCOME" != success || \
+                "$CADDY_OUTCOME" != success ]]; then
+            echo 'One or more scans found fixable HIGH or CRITICAL vulnerabilities.' >&2
+            exit 1
+          fi
+

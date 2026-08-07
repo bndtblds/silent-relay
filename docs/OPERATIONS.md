@@ -461,6 +461,21 @@ The digest shown on the top-level `Digest:` line is the multi-platform index
 digest. Do not substitute an architecture-specific manifest digest unless the
 deployment is intentionally restricted to that architecture.
 
+The repository security workflow builds and scans the application image and
+scans the exact Caddy reference rendered by Docker Compose. It also scans the
+locked Python dependencies. For each run, GitHub retains SARIF reports,
+CycloneDX SBOMs, and metadata containing the commit and image identifiers for
+90 days. Release reviews must preserve the successful workflow run and its
+artifacts with the release record. If longer retention is required, attach the
+SBOMs to the release or copy them to the operator's controlled archive before
+the workflow artifacts expire.
+
+The workflow blocks fixable `HIGH` and `CRITICAL` vulnerabilities. Findings
+without an available fix are still reported and must be reviewed rather than
+treated as proof that an image is risk-free. When an exception is unavoidable,
+document its scope, rationale, compensating controls, and expiry instead of
+disabling a scan target.
+
 The update keeps:
 
 - `/opt/silent-relay/.env`;

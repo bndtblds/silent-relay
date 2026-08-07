@@ -336,6 +336,19 @@ uv run pytest
 git diff --check
 ```
 
+GitHub Actions also runs a weekly and change-triggered Trivy security workflow.
+It scans the locked Python dependencies, the built application image, and the
+digest-pinned Caddy image. The workflow publishes SARIF results to GitHub code
+scanning and retains matching CycloneDX SBOMs plus scan metadata as workflow
+artifacts for 90 days. A fixable `HIGH` or `CRITICAL` vulnerability fails the
+workflow; findings without an available fix remain visible in the reports.
+
+Review all three scan targets when changing dependencies or containers. Do not
+silence a finding without a documented reason and a time-bounded follow-up.
+Action references and scanner versions are deliberately pinned and must be
+updated through reviewed dependency updates rather than replaced with floating
+`latest` references.
+
 Also build or validate Docker when changing:
 
 - `Dockerfile`;
