@@ -3,14 +3,20 @@ set -eu
 
 umask 077
 cd "$(dirname "$0")"
+export COMPOSE_PROGRESS=quiet
 
 fail() {
     printf '%s\n' "Update failed: $*" >&2
     exit 2
 }
 
+step() {
+    printf '\n[%s/6] %s\n' "$1" "$2"
+}
+
 [ "$#" -eq 0 ] || fail "usage: sh update.sh"
 
+step 1 "Checking prerequisites"
 for command in git docker; do
     command -v "$command" >/dev/null 2>&1 || fail "$command is required"
 done
@@ -25,6 +31,7 @@ worktree_status=$(git status --porcelain) || fail "cannot inspect the Git worktr
 
 old_commit=$(git rev-parse HEAD) || fail "cannot determine the installed commit"
 
+step 2 "Creating encrypted backup"
 backup_output=$(sh backup.sh) || fail "the encrypted backup did not complete"
 printf '%s\n' "$backup_output"
 backup_file=$(printf '%s\n' "$backup_output" | sed -n 's/^Backup created: //p' | tail -n 1)
@@ -32,21 +39,25 @@ backup_file=$(printf '%s\n' "$backup_output" | sed -n 's/^Backup created: //p' |
 [ -f "$backup_file" ] && [ ! -L "$backup_file" ] || fail "the reported encrypted backup is not a regular file"
 case "$backup_file" in *.tar.gz.age) ;; *) fail "the reported backup is not an encrypted SilentRelay archive";; esac
 
+step 3 "Transferring backup off-site"
 sh backup-transfer.sh "$backup_file" || fail "the off-site backup transfer did not complete"
 
+step 4 "Downloading updates"
 git pull --ff-only || fail "Git could not fast-forward the installed branch"
 new_commit=$(git rev-parse HEAD) || fail "cannot determine the updated commit"
 
+step 5 "Building and starting services"
 if ! docker compose up -d --build --wait --wait-timeout 120; then
     printf '%s\n' "Migration or service startup failed. Inspect: docker compose logs migrate web scheduler caddy" >&2
     fail "the updated deployment is not ready; no automatic rollback was attempted"
 fi
 
+step 6 "Verifying readiness"
 docker compose exec -T web python -c \
     "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)" \
     || fail "the readiness check failed; no automatic rollback was attempted"
 
-printf '%s\n' "Update completed: $old_commit -> $new_commit"
+printf '\n%s\n' "Update completed: $old_commit -> $new_commit"
 if [ "$old_commit" = "$new_commit" ]; then
     printf '%s\n' "No new commits were available."
 else

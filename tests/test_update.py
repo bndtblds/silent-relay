@@ -73,6 +73,12 @@ def test_successful_update_runs_safety_steps_in_order(tmp_path: Path) -> None:
         "docker:compose up -d --build --wait --wait-timeout 120"
     )
     assert "docker:compose exec -T web python -c" in commands
+    assert "[1/6] Checking prerequisites" in result.stdout
+    assert "[2/6] Creating encrypted backup" in result.stdout
+    assert "[3/6] Transferring backup off-site" in result.stdout
+    assert "[4/6] Downloading updates" in result.stdout
+    assert "[5/6] Building and starting services" in result.stdout
+    assert "[6/6] Verifying readiness" in result.stdout
     assert "Update completed: abc123 -> abc123" in result.stdout
 
 
