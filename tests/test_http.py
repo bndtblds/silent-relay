@@ -1,4 +1,6 @@
 import html
+import json
+import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -10,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.database import engine
 from app.config import get_settings
-from app.main import app
+from app.main import JsonFormatter, app
 from app.models import (
     Account,
     AccountReview,
@@ -97,6 +99,16 @@ def test_health_and_security_headers():
     assert response.headers["referrer-policy"] == "no-referrer"
     assert response.headers["x-frame-options"] == "DENY"
     assert "default-src 'self'" in response.headers["content-security-policy"]
+
+
+def test_json_log_timestamp_is_utc_aware():
+    record = logging.LogRecord("test", logging.INFO, __file__, 1, "event", (), None)
+
+    payload = json.loads(JsonFormatter().format(record))
+    timestamp = datetime.fromisoformat(payload["timestamp"])
+
+    assert payload["timestamp"].endswith("Z")
+    assert timestamp.utcoffset() == timedelta(0)
 
 
 def test_public_html_pages_render():

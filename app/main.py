@@ -4,7 +4,6 @@ import json
 import logging
 import secrets
 from contextlib import asynccontextmanager
-from datetime import datetime
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -23,6 +22,7 @@ from app.i18n import (
 )
 from app.routers import admin, web
 from app.rate_limit import PersistentRateLimiter, policy_for_path
+from app.time import utc_now
 
 settings = get_settings()
 templates = Jinja2Templates(directory="app/templates")
@@ -44,7 +44,7 @@ def page_context(request: Request, **values: object) -> dict[str, object]:
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": utc_now().isoformat().replace("+00:00", "Z"),
             "severity": record.levelname,
             "event": record.getMessage(),
         }
