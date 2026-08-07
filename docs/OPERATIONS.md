@@ -389,41 +389,35 @@ email delivery.
 
 ## Update SilentRelay
 
-Create a current backup before every update. Then inspect the installation:
+Configure and test both encrypted backups and off-site transfer before the
+first update. Then use the automated update process:
 
 ```sh
 cd /opt/silent-relay
-git status --short
+sh update.sh
 ```
 
-The second command must produce no output. Stop if it lists unexpected files
-and clarify why they were changed. Do not delete `.env` and do not discard
-unknown changes merely to continue.
+The script stops before changing Git if the worktree is dirty, the encrypted
+backup fails, or the exact new backup cannot be transferred off-site. It then
+uses `git pull --ff-only`, rebuilds and starts the Compose deployment, runs the
+database migration through the `migrate` service, waits for healthy services,
+and verifies `/health/ready` inside the web container. At completion it reports
+the old and new commits plus the installed commit list.
 
-Download the new version:
+If startup, migration, or readiness fails, inspect the logs:
 
 ```sh
-git pull --ff-only
+docker compose logs migrate web scheduler caddy
 ```
 
-Build and start it:
+Do not force other services to start after a migration failure. The script does
+not attempt automatic rollback: a database migration may make old application
+code incompatible with the current database. Diagnose the failure or restore
+the verified encrypted backup deliberately according to the restore procedure.
+
+After a successful update, perform the operator checks:
 
 ```sh
-docker compose up -d --build
-```
-
-This command checks the database before starting the updated application. If it
-fails, do not force the other services to start. Read the error and the
-migration log:
-
-```sh
-docker compose logs migrate
-```
-
-After a successful update, verify the installed commit and services:
-
-```sh
-git rev-parse --short HEAD
 docker compose ps
 docker compose logs --tail=100 caddy web scheduler
 ```
