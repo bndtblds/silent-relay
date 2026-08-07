@@ -470,11 +470,15 @@ artifacts with the release record. If longer retention is required, attach the
 SBOMs to the release or copy them to the operator's controlled archive before
 the workflow artifacts expire.
 
-The workflow blocks fixable `HIGH` and `CRITICAL` vulnerabilities. Findings
-without an available fix are still reported and must be reviewed rather than
-treated as proof that an image is risk-free. When an exception is unavoidable,
-document its scope, rationale, compensating controls, and expiry instead of
-disabling a scan target.
+The workflow blocks fixable `HIGH` and `CRITICAL` vulnerabilities in locked
+dependencies and the application image. The separately maintained upstream
+Caddy image remains fully scanned, but its findings produce a warning instead
+of blocking SilentRelay changes while no corrected official image exists.
+Review that warning on every run and update the digest as soon as upstream
+publishes a fixed build. Findings without an available fix are also reported
+and must not be treated as proof that an image is risk-free. When an exception
+is unavoidable, document its scope, rationale, compensating controls, and
+expiry instead of disabling a scan target.
 
 The update keeps:
 

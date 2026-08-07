@@ -340,8 +340,11 @@ GitHub Actions also runs a weekly and change-triggered Trivy security workflow.
 It scans the locked Python dependencies, the built application image, and the
 digest-pinned Caddy image. The workflow publishes SARIF results to GitHub code
 scanning and retains matching CycloneDX SBOMs plus scan metadata as workflow
-artifacts for 90 days. A fixable `HIGH` or `CRITICAL` vulnerability fails the
-workflow; findings without an available fix remain visible in the reports.
+artifacts for 90 days. A fixable `HIGH` or `CRITICAL` vulnerability in the
+locked dependencies or application image fails the workflow. Equivalent
+findings in the separately maintained upstream Caddy image produce a visible
+warning until an updated official image is available. All findings remain in
+the reports.
 
 Review all three scan targets when changing dependencies or containers. Do not
 silence a finding without a documented reason and a time-bounded follow-up.

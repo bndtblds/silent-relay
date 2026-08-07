@@ -206,9 +206,10 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$DEPENDENCY_OUTCOME" != success || \
-                "$APPLICATION_OUTCOME" != success || \
-                "$CADDY_OUTCOME" != success ]]; then
-            echo 'One or more scans found fixable HIGH or CRITICAL vulnerabilities.' >&2
+                "$APPLICATION_OUTCOME" != success ]]; then
+            echo 'Dependencies or the application image contain fixable HIGH or CRITICAL vulnerabilities.' >&2
             exit 1
           fi
-
+          if [[ "$CADDY_OUTCOME" != success ]]; then
+            echo '::warning::The upstream Caddy image contains fixable HIGH or CRITICAL vulnerabilities; review the Caddy SARIF report and update the pinned image when upstream publishes a fixed build.'
+          fi
