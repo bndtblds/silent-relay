@@ -45,7 +45,7 @@ lockfile deliberately whenever project dependencies change.
 
 ## Run the tests first
 
-The quickest way to verify the checkout is:
+The quickest way to verify the working tree is:
 
 ```sh
 uv run pytest
@@ -294,7 +294,7 @@ messages, status labels, accessibility text, and representative HTTP flows are
 covered.
 
 Never edit an existing production database manually. Do not remove or rewrite
-an already published migration merely to make a local checkout work.
+an already published migration merely to make a local development copy work.
 
 ## Working with Docker
 

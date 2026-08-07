@@ -5,9 +5,9 @@ public account registration may create an account. It lets an operator apply
 deployment-specific registration rules while the open-source core retains
 ownership of account and security data.
 
-This is not a general plugin system. A provider does not add features, manage
-payments, or control existing accounts. Self-hosted installations use the
-built-in allow-all provider and retain every SilentRelay feature.
+This is not a general plugin system. Its scope is limited to the contracts
+documented below. The default installation uses the built-in allow-all
+provider.
 
 ## Public interface
 
@@ -129,12 +129,13 @@ def create_provider():
 
 This provider intentionally implements no account-created hook and is valid.
 
-## Provider-owned data and limits
+## Provider-owned state and contract limits
 
 Extensions should keep their own data and migrations outside the SilentRelay
 schema. Internal account IDs are the only supported shared identifier. Email
 addresses must not be durable cross-system keys.
 
-Payments, subscriptions, prices, invoices, checkout and return flows, webhooks,
-existing-account access decisions, read-only modes, and account deactivation
-or deletion policies are explicitly outside this interface.
+Only capabilities explicitly defined by the public entitlement contracts are
+supported. Extensions must not depend on undocumented routes, models, database
+tables, implementation details, or data that SilentRelay does not deliberately
+include in a provider context.

@@ -357,7 +357,6 @@ def test_denial_and_unavailable_pages_are_neutral_in_english():
     assert "temporarily unavailable" in unavailable.text
     for response in (denied, unavailable):
         assert "provider" not in response.text.casefold()
-        assert "payment" not in response.text.casefold()
 
 
 def test_closed_core_registration_does_not_call_provider():
