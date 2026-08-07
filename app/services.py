@@ -23,6 +23,7 @@ from app.security.core import (
     keyed_hash, verify_password,
 )
 from app.system_config import review_reminder_days, system_configuration
+from app.time import utc_now
 
 
 def audit(db: Session, event: str, account_id: str | None = None, **metadata: object) -> None:
@@ -48,7 +49,7 @@ class AccountService:
             account_id=account.id,
             account_owner_token_hash=keyed_hash(account_owner_token, self.settings.token_hmac_key),
             setup_token_hash=keyed_hash(setup_token, self.settings.token_hmac_key),
-            setup_expires_at=datetime.utcnow() + timedelta(hours=24),
+            setup_expires_at=utc_now() + timedelta(hours=24),
         ))
         audit(db, "account_created", account.id)
         db.commit()
@@ -57,7 +58,7 @@ class AccountService:
     def setup(self, db: Session, setup_token: str, password: str, email: str) -> tuple[Account, str]:
         token_hash = keyed_hash(setup_token, self.settings.token_hmac_key)
         credential = db.scalar(select(AccountOwnerCredential).where(AccountOwnerCredential.setup_token_hash == token_hash))
-        if not credential or not credential.setup_expires_at or credential.setup_expires_at <= datetime.utcnow():
+        if not credential or not credential.setup_expires_at or credential.setup_expires_at <= utc_now():
             raise LookupError(translate(self.settings.default_language, "error.setup_link"))
         language = credential.account.language_code
         normalized_email = email.strip().casefold()
@@ -67,7 +68,7 @@ class AccountService:
             credential.password_hash = hash_password(password)
         except ValueError as exc:
             raise ValueError(translate(language, "error.password_length")) from exc
-        credential.password_changed_at = datetime.utcnow()
+        credential.password_changed_at = utc_now()
         credential.setup_token_hash = None
         credential.setup_expires_at = None
         verification_token = generate_token()
@@ -76,14 +77,14 @@ class AccountService:
             encrypted_value=self.cipher.encrypt(normalized_email),
             value_fingerprint=fingerprint(normalized_email, self.settings.fingerprint_hmac_key),
             verification_token_hash=keyed_hash(verification_token, self.settings.token_hmac_key),
-            verification_expires_at=datetime.utcnow() + timedelta(hours=24),
+            verification_expires_at=utc_now() + timedelta(hours=24),
         ))
         audit(db, "account_setup", credential.account_id)
         db.commit()
         return credential.account, verification_token
 
     def contact_confirmation_account(self, db: Session, token: str) -> Account | None:
-        now = datetime.utcnow()
+        now = utc_now()
         token_hash = keyed_hash(token, self.settings.token_hmac_key)
         contact = db.scalar(select(ContactMethod).where(
             ContactMethod.verification_token_hash == token_hash,
@@ -103,7 +104,7 @@ class AccountService:
         return db.get(Account, contact.account_id)
 
     def verify_contact(self, db: Session, token: str) -> Account | None:
-        now = datetime.utcnow()
+        now = utc_now()
         token_hash = keyed_hash(token, self.settings.token_hmac_key)
         contact_id = db.execute(update(ContactMethod).where(
             ContactMethod.verification_token_hash == token_hash,
@@ -183,7 +184,7 @@ class AccountService:
         return review
 
     def confirm_review(self, db: Session, account: Account) -> bool:
-        now = datetime.utcnow()
+        now = utc_now()
         current = db.scalar(select(AccountReview).where(
             AccountReview.account_id == account.id, AccountReview.confirmed_at.is_(None)
         ).order_by(AccountReview.review_due_at.desc()))
@@ -205,7 +206,7 @@ class AccountService:
         if not current:
             return False
         completed = self._finish_review_if_complete(
-            db, account, current.id, datetime.utcnow()
+            db, account, current.id, utc_now()
         )
         db.commit()
         return completed
@@ -251,7 +252,7 @@ class AuthenticationService:
 
     def login(self, db: Session, token: str, password: str) -> Account | None:
         credential = self.credential_for_token(db, token)
-        now = datetime.utcnow()
+        now = utc_now()
         if not credential or (credential.locked_until and credential.locked_until > now):
             return None
         if not verify_password(credential.password_hash, password):
@@ -282,7 +283,7 @@ class AuthenticationService:
         if not credential or not verify_password(credential.password_hash, current_password):
             return False
         credential.password_hash = hash_password(new_password)
-        credential.password_changed_at = datetime.utcnow()
+        credential.password_changed_at = utc_now()
         SessionManager(self.settings).revoke_account_owner_sessions(db, account_id)
         audit(db, "account_owner_password_changed", account_id)
         db.commit()
@@ -302,7 +303,7 @@ class ManagementService:
             encrypted_value=self.cipher.encrypt(normalized),
             value_fingerprint=fingerprint(normalized, self.settings.fingerprint_hmac_key),
             verification_token_hash=keyed_hash(token, self.settings.token_hmac_key),
-            verification_expires_at=datetime.utcnow() + timedelta(hours=24),
+            verification_expires_at=utc_now() + timedelta(hours=24),
         ))
         db.commit()
         return token
@@ -337,7 +338,7 @@ class ManagementService:
         db.add(TrustedPersonToken(
             trusted_person_id=person.id,
             token_hash=keyed_hash(token, self.settings.token_hmac_key),
-            enrollment_expires_at=datetime.utcnow() + timedelta(days=14),
+            enrollment_expires_at=utc_now() + timedelta(days=14),
         ))
         audit(db, "trusted_person_created", account_id)
         db.commit()
@@ -352,10 +353,10 @@ class ManagementService:
         token = generate_token()
         record = db.get(TrustedPersonToken, person_id)
         record.token_hash, record.rotated_at, record.revoked_at = (
-            keyed_hash(token, self.settings.token_hmac_key), datetime.utcnow(), None
+            keyed_hash(token, self.settings.token_hmac_key), utc_now(), None
         )
         record.pin_hash = None
-        record.enrollment_expires_at = datetime.utcnow() + timedelta(days=14)
+        record.enrollment_expires_at = utc_now() + timedelta(days=14)
         record.enrolled_at = None
         record.failed_pin_attempts = 0
         record.locked_until = None
@@ -425,7 +426,7 @@ class NotificationService:
                 return None
         else:
             return None
-        record.last_used_at = datetime.utcnow()
+        record.last_used_at = utc_now()
         return person, record
 
     def resolve_person(self, db: Session, token: str) -> TrustedPerson | None:
@@ -453,14 +454,14 @@ class NotificationService:
             id_hash=keyed_hash(raw, self.settings.token_hmac_key),
             trusted_person_id=person.id,
             encrypted_message=self.cipher.encrypt(value),
-            expires_at=datetime.utcnow() + timedelta(minutes=15),
+            expires_at=utc_now() + timedelta(minutes=15),
         ))
         db.commit()
         return raw
 
     def accept(self, db: Session, submission_token: str) -> Notification:
         submission = db.get(Submission, keyed_hash(submission_token, self.settings.token_hmac_key))
-        if not submission or submission.consumed_at or submission.expires_at <= datetime.utcnow():
+        if not submission or submission.consumed_at or submission.expires_at <= utc_now():
             raise LookupError
         person = db.get(TrustedPerson, submission.trusted_person_id)
         account = db.get(Account, person.account_id) if person else None
@@ -468,7 +469,7 @@ class NotificationService:
             raise LookupError
         message = self.cipher.decrypt(submission.encrypted_message)
         digest = keyed_hash(message, self.settings.fingerprint_hmac_key)
-        now = datetime.utcnow()
+        now = utc_now()
         config = system_configuration(db)
         release_at = now + timedelta(minutes=config.notification_delay_minutes)
         notification = Notification(
@@ -492,7 +493,7 @@ class NotificationService:
 
     @staticmethod
     def pending_for_person(db: Session, person_id: str, now: datetime | None = None) -> list[Notification]:
-        now = now or datetime.utcnow()
+        now = now or utc_now()
         return list(db.scalars(select(Notification).where(
             Notification.trusted_person_id == person_id,
             Notification.status == NotificationStatus.queued,
@@ -501,7 +502,7 @@ class NotificationService:
         ).order_by(Notification.release_at)))
 
     def cancel(self, db: Session, person_id: str, notification_id: str, now: datetime | None = None) -> bool:
-        now = now or datetime.utcnow()
+        now = now or utc_now()
         delivery_started = select(Delivery.id).where(
             Delivery.notification_id == Notification.id,
             Delivery.status != DeliveryStatus.pending,
@@ -543,7 +544,7 @@ class DeliveryService:
         self.settings, self.cipher, self.providers = settings, cipher, providers
 
     def process_due(self, db: Session, now: datetime | None = None) -> int:
-        now = now or datetime.utcnow()
+        now = now or utc_now()
         released_notifications = select(Notification.id).where(
             Notification.release_at <= now,
             Notification.cancelled_at.is_(None),
@@ -719,7 +720,7 @@ class LifecycleService:
         self.cipher = FieldCipher(settings.field_encryption_key)
 
     def run(self, db: Session, now: datetime | None = None) -> None:
-        now = now or datetime.utcnow()
+        now = now or utc_now()
         db.execute(delete(ContactReviewToken).where(
             ContactReviewToken.expires_at <= now
         ))

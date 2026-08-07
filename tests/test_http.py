@@ -32,6 +32,7 @@ from app.routers import admin, web
 from app.security.core import FieldCipher, hash_password, keyed_hash
 from app.security.core import SessionManager
 from app.services import AccountService, ManagementService
+from app.time import utc_now
 
 
 def hidden_value(body: str, name: str) -> str:
@@ -444,7 +445,7 @@ def test_trusted_access_requires_timely_pin_setup_and_locks_repeated_failures():
 
     with Session(engine) as db:
         record = db.get(TrustedPersonToken, person.id)
-        assert record.locked_until > datetime.utcnow()
+        assert record.locked_until > utc_now()
 
 
 def test_trusted_access_setup_expires_after_fourteen_days():
@@ -461,7 +462,7 @@ def test_trusted_access_setup_expires_after_fourteen_days():
             db, account.id, "account", account.id, "Trusted"
         )
         record = db.get(TrustedPersonToken, person.id)
-        record.enrollment_expires_at = datetime.utcnow() - timedelta(seconds=1)
+        record.enrollment_expires_at = utc_now() - timedelta(seconds=1)
         db.commit()
 
     with TestClient(app) as client:
@@ -539,17 +540,17 @@ def test_periodic_contact_confirmation_post_and_neutral_token_errors():
             ContactMethod.verification_token_hash
             == keyed_hash(expired_token, settings.token_hmac_key)
         ))
-        expired_contact.verification_expires_at = datetime.utcnow() - timedelta(seconds=1)
+        expired_contact.verification_expires_at = utc_now() - timedelta(seconds=1)
         review = db.scalar(select(AccountReview).where(
             AccountReview.account_id == account_id,
             AccountReview.confirmed_at.is_(None),
         ))
-        review.review_due_at = datetime.utcnow() - timedelta(seconds=1)
+        review.review_due_at = utc_now() - timedelta(seconds=1)
         account.next_review_due_at = review.review_due_at
         contact_review = ContactReview(
             account_review_id=review.id,
             contact_method_id=contact.id,
-            confirmation_due_at=datetime.utcnow() + timedelta(hours=1),
+            confirmation_due_at=utc_now() + timedelta(hours=1),
         )
         db.add(contact_review)
         db.flush()

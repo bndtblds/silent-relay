@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import select
 
@@ -16,6 +16,7 @@ from app.providers.base import DeliveryResult
 from app.providers.email import EmailNotificationProvider, EmailProviderConfig
 from app.security.core import keyed_hash
 from app.smtp_config import save_email_config, save_ndr_config
+from app.time import utc_now
 
 
 TOKEN = "abcdefghijklmnopqrstuvwxyzABCDEFGH1234567890_-"
@@ -135,7 +136,7 @@ def _tracking(db, settings, *, contact_id=None, delivery_id=None):
         token_hash=keyed_hash(TOKEN, settings.token_hmac_key),
         contact_method_id=contact_id,
         delivery_id=delivery_id,
-        expires_at=datetime.utcnow() + timedelta(days=1),
+        expires_at=utc_now() + timedelta(days=1),
     )
     db.add(tracking)
     db.commit()
@@ -185,7 +186,7 @@ def test_immediate_permanent_rejection_marks_contact_and_delivery_failed(
         encrypted_value=cipher.encrypt("missing@example.org"),
         value_fingerprint="fingerprint",
         is_verified=True,
-        verified_at=datetime.utcnow(),
+        verified_at=utc_now(),
     )
     notification = Notification(
         account_id=account.id,
@@ -242,7 +243,7 @@ def test_permanent_dsn_marks_contact_and_delivery_failed(db, settings, cipher):
         encrypted_value=cipher.encrypt("recipient@example.net"),
         value_fingerprint="fingerprint",
         is_verified=True,
-        verified_at=datetime.utcnow(),
+        verified_at=utc_now(),
     )
     notification = Notification(
         account_id=account.id,

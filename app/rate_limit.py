@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address, ip_network
 from math import ceil
 
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.models import RateLimitBucket
 from app.security.core import keyed_hash
+from app.time import as_utc, utc_now
 
 
 @dataclass(frozen=True)
@@ -108,9 +109,9 @@ class PersistentRateLimiter:
         subject: str | None = None,
         now: datetime | None = None,
     ) -> RateLimitDecision:
-        now = now or datetime.utcnow()
+        now = as_utc(now or utc_now())
         window_seconds = _positive(policy.window_seconds)
-        utc_epoch = datetime(1970, 1, 1)
+        utc_epoch = datetime(1970, 1, 1, tzinfo=UTC)
         window_epoch = (
             int((now - utc_epoch).total_seconds()) // window_seconds * window_seconds
         )
@@ -161,6 +162,6 @@ class PersistentRateLimiter:
 
 def purge_expired_rate_limits(db: Session, now: datetime | None = None) -> int:
     result = db.execute(
-        delete(RateLimitBucket).where(RateLimitBucket.expires_at <= (now or datetime.utcnow()))
+        delete(RateLimitBucket).where(RateLimitBucket.expires_at <= (now or utc_now()))
     )
     return result.rowcount or 0

@@ -22,6 +22,7 @@ from app.models import (
     NotificationStatus,
 )
 from app.providers.base import DeliveryResult, NotificationProvider
+from app.time import utc_now
 from app.security.core import FieldCipher, generate_token, keyed_hash
 from app.smtp_config import ImapNdrConfig, load_ndr_config
 
@@ -50,7 +51,7 @@ def send_tracked_email(
             token_hash=keyed_hash(token, settings.token_hmac_key),
             contact_method_id=contact_method_id,
             delivery_id=delivery_id,
-            expires_at=datetime.utcnow() + timedelta(days=TRACKING_RETENTION_DAYS),
+            expires_at=utc_now() + timedelta(days=TRACKING_RETENTION_DAYS),
         )
         db.add(tracking)
         db.flush()
@@ -80,7 +81,7 @@ def record_permanent_delivery_failure(
     error_class: str,
     now: datetime | None = None,
 ) -> None:
-    now = now or datetime.utcnow()
+    now = now or utc_now()
     contact = db.get(ContactMethod, contact_method_id) if contact_method_id else None
     if contact:
         contact.permanent_failure_count += 1
@@ -116,7 +117,7 @@ class NdrMailboxProcessor:
         self.imap_factory = imap_factory
 
     def process(self, db: Session, now: datetime | None = None) -> int:
-        now = now or datetime.utcnow()
+        now = now or utc_now()
         db.execute(delete(EmailDeliveryTracking).where(
             EmailDeliveryTracking.expires_at <= now
         ))

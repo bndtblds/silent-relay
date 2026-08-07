@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from alembic import command
 from alembic.config import Config
 
 from app.config import get_settings
+from app.time import utc_now
 
 
 def _upgrade(database_path, revision: str, monkeypatch) -> None:
@@ -258,4 +259,4 @@ def test_existing_database_upgrades_without_losing_data(tmp_path, monkeypatch):
     assert trusted_token[0] is None
     assert trusted_token[2] is None
     enrollment_deadline = datetime.fromisoformat(trusted_token[1])
-    assert enrollment_deadline > datetime.utcnow() + timedelta(days=13)
+    assert enrollment_deadline.replace(tzinfo=UTC) > utc_now() + timedelta(days=13)

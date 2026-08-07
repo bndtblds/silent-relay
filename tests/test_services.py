@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 import uuid
 
 import pytest
@@ -19,6 +19,7 @@ from app.services import (
     AccountService, AuthenticationService, DeliveryService, LifecycleService,
     ManagementService, NotificationService,
 )
+from app.time import utc_now
 
 
 class SuccessfulProvider:
@@ -254,7 +255,7 @@ def test_notification_waits_for_fixed_release_time_and_can_be_cancelled(
     )
     service = NotificationService(settings, cipher)
     person = service.resolve_person(db, token)
-    before = datetime.utcnow()
+    before = utc_now()
     notification = service.accept(
         db, service.stage(db, person, "A sufficiently long queued message.")
     )
@@ -349,7 +350,7 @@ def _pending_notification(db, settings, cipher):
 
 def test_valid_delivery_lease_prevents_second_claim(db, settings, cipher):
     _, _, delivery, _ = _pending_notification(db, settings, cipher)
-    now = datetime.utcnow()
+    now = utc_now()
     delivery.status = DeliveryStatus.processing
     delivery.processing_started_at = now
     delivery.processing_until = now + timedelta(minutes=1)
@@ -362,7 +363,7 @@ def test_valid_delivery_lease_prevents_second_claim(db, settings, cipher):
 
 def test_expired_delivery_lease_is_reclaimed_after_restart(db, settings, cipher):
     _, _, delivery, _ = _pending_notification(db, settings, cipher)
-    now = datetime.utcnow()
+    now = utc_now()
     delivery.status = DeliveryStatus.processing
     delivery.processing_started_at = now - timedelta(minutes=3)
     delivery.processing_until = now - timedelta(minutes=1)
@@ -380,7 +381,7 @@ def test_crash_after_claim_before_provider_leaves_recoverable_lease(
     db, settings, cipher, monkeypatch
 ):
     _, _, delivery, _ = _pending_notification(db, settings, cipher)
-    now = datetime.utcnow()
+    now = utc_now()
     service = DeliveryService(settings, cipher, {"email": FailIfCalledProvider()})
 
     monkeypatch.setattr(service, "_authorized_delivery", lambda *args: (_ for _ in ()).throw(SystemExit()))
@@ -402,7 +403,7 @@ def test_crash_after_provider_acceptance_can_duplicate_on_recovery(
     db, settings, cipher
 ):
     _, _, delivery, _ = _pending_notification(db, settings, cipher)
-    now = datetime.utcnow()
+    now = utc_now()
 
     class AcceptedThenCrashedProvider(SuccessfulProvider):
         def send(self, *args, **kwargs):
@@ -429,7 +430,7 @@ def test_reclaimed_delivery_rechecks_current_authorization(
     db, settings, cipher, revocation
 ):
     account, notification, delivery, contact = _pending_notification(db, settings, cipher)
-    now = datetime.utcnow()
+    now = utc_now()
     delivery.status = DeliveryStatus.processing
     delivery.processing_started_at = now - timedelta(minutes=3)
     delivery.processing_until = now - timedelta(minutes=1)
@@ -485,7 +486,7 @@ def test_delivery_rechecks_authorization_before_provider(
     elif change == "invalid_owner":
         contact.owner_id = str(uuid.uuid4())
     elif change == "expired_notification":
-        notification.expires_at = datetime.utcnow() - timedelta(seconds=1)
+        notification.expires_at = utc_now() - timedelta(seconds=1)
     elif change == "missing_payload":
         notification.encrypted_message_payload = None
     db.commit()
@@ -708,7 +709,7 @@ def test_immediate_permanent_delivery_failure_invalidates_contact(
 
 def test_lifecycle_transitions(db, settings, cipher):
     account = active_account(db, settings, cipher)
-    now = datetime.utcnow()
+    now = utc_now()
     account.next_review_due_at = now - timedelta(days=1)
     account.review_grace_due_at = now + timedelta(days=1)
     db.commit()
@@ -732,7 +733,7 @@ def test_periodic_contact_confirmation_and_owner_review_complete_cycle(
         AccountReview.account_id == account.id,
         AccountReview.confirmed_at.is_(None),
     ))
-    now = datetime.utcnow()
+    now = utc_now()
     review.review_due_at = now - timedelta(seconds=1)
     account.next_review_due_at = review.review_due_at
     token = "periodic-confirmation-token"
@@ -779,7 +780,7 @@ def test_expired_periodic_confirmation_excludes_contact(
         AccountReview.account_id == account.id,
         AccountReview.confirmed_at.is_(None),
     ))
-    now = datetime.utcnow()
+    now = utc_now()
     contact_review = ContactReview(
         account_review_id=review.id,
         contact_method_id=contact.id,
@@ -810,7 +811,7 @@ def test_expired_message_is_discarded(db, settings, cipher):
     notification = service.accept(
         db, service.stage(db, service.resolve_person(db, token), "A sufficiently long message.")
     )
-    notification.expires_at = datetime.utcnow() - timedelta(seconds=1)
+    notification.expires_at = utc_now() - timedelta(seconds=1)
     db.commit()
     LifecycleService(settings).run(db)
     assert notification.status == NotificationStatus.discarded
@@ -830,7 +831,7 @@ def test_rotating_trusted_access_revokes_pin_and_sessions(db, settings, cipher):
     )
     record = db.get(TrustedPersonToken, person.id)
     record.pin_hash = hash_pin("472915")
-    record.enrolled_at = datetime.utcnow()
+    record.enrolled_at = utc_now()
     raw_session, _ = SessionManager(settings).create(
         db, "trusted_person", account.id, person.id
     )
@@ -844,7 +845,7 @@ def test_rotating_trusted_access_revokes_pin_and_sessions(db, settings, cipher):
     assert new_token != old_token
     assert record.pin_hash is None
     assert record.enrolled_at is None
-    assert record.enrollment_expires_at > datetime.utcnow() + timedelta(days=13)
+    assert record.enrollment_expires_at > utc_now() + timedelta(days=13)
     assert SessionManager(settings).resolve(
         db, raw_session, "trusted_person"
     ) is None

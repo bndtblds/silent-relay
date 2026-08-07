@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models import ServerSession
+from app.time import utc_now
 
 _password_hasher = PasswordHasher()
 
@@ -106,7 +107,7 @@ class SessionManager:
             kind=kind,
             account_id=account_id,
             trusted_person_id=trusted_person_id,
-            expires_at=datetime.utcnow() + timedelta(minutes=self.settings.session_ttl_minutes),
+            expires_at=utc_now() + timedelta(minutes=self.settings.session_ttl_minutes),
         ))
         db.flush()
         return raw_id, raw_csrf
@@ -115,7 +116,7 @@ class SessionManager:
         if not raw_id:
             return None
         session = db.get(ServerSession, keyed_hash(raw_id, self.settings.session_secret))
-        if not session or session.kind != kind or session.expires_at <= datetime.utcnow():
+        if not session or session.kind != kind or session.expires_at <= utc_now():
             return None
         return session
 
@@ -138,5 +139,5 @@ class SessionManager:
         return result.rowcount or 0
 
     def purge_expired(self, db: Session) -> int:
-        result = db.execute(delete(ServerSession).where(ServerSession.expires_at <= datetime.utcnow()))
+        result = db.execute(delete(ServerSession).where(ServerSession.expires_at <= utc_now()))
         return result.rowcount or 0

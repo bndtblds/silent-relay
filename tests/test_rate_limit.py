@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 import re
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -43,7 +43,7 @@ def test_action_policies_are_separate(settings):
 
 def test_limit_is_persistent_and_subject_scope_blocks_multiple_clients(db, settings):
     policy = RateLimitPolicy("test", 60, client_limit=5, subject_limit=2, global_limit=20)
-    now = datetime(2026, 8, 3, 12, 0, 1)
+    now = datetime(2026, 8, 3, 12, 0, 1, tzinfo=UTC)
 
     first = PersistentRateLimiter(settings).check(
         db, policy, "198.51.100.1", "secret-token", now
@@ -65,7 +65,7 @@ def test_limit_is_persistent_and_subject_scope_blocks_multiple_clients(db, setti
 
 def test_buckets_store_no_plain_client_or_secret_and_expire(db, settings):
     policy = RateLimitPolicy("test", 60, client_limit=5, subject_limit=5, global_limit=20)
-    now = datetime(2026, 8, 3, 12, 0, 1)
+    now = datetime(2026, 8, 3, 12, 0, 1, tzinfo=UTC)
     limiter = PersistentRateLimiter(settings)
     limiter.check(db, policy, "2001:db8::1234", "secret-token", now)
     db.commit()
@@ -89,7 +89,8 @@ def test_bucket_capacity_fails_closed(db, settings):
     settings.rate_limit_max_buckets = 2
     policy = RateLimitPolicy("test", 60, client_limit=5, subject_limit=5, global_limit=20)
     decision = PersistentRateLimiter(settings).check(
-        db, policy, "198.51.100.1", "secret-token", datetime(2026, 8, 3, 12, 0, 1)
+        db, policy, "198.51.100.1", "secret-token",
+        datetime(2026, 8, 3, 12, 0, 1, tzinfo=UTC),
     )
     db.commit()
 
@@ -99,7 +100,7 @@ def test_bucket_capacity_fails_closed(db, settings):
 
 def test_scheduler_cleanup_removes_only_expired_buckets(db, settings):
     policy = RateLimitPolicy("test", 60, client_limit=5, subject_limit=None, global_limit=20)
-    now = datetime(2026, 8, 3, 12, 0, 1)
+    now = datetime(2026, 8, 3, 12, 0, 1, tzinfo=UTC)
     limiter = PersistentRateLimiter(settings)
     limiter.check(db, policy, "198.51.100.1", now=now)
     db.commit()
@@ -112,7 +113,7 @@ def test_scheduler_cleanup_removes_only_expired_buckets(db, settings):
 
 def test_global_limit_stops_new_client_buckets(db, settings):
     policy = RateLimitPolicy("test", 60, client_limit=5, subject_limit=None, global_limit=2)
-    now = datetime(2026, 8, 3, 12, 0, 1)
+    now = datetime(2026, 8, 3, 12, 0, 1, tzinfo=UTC)
     limiter = PersistentRateLimiter(settings)
     assert limiter.check(db, policy, "198.51.100.1", now=now).allowed
     db.commit()

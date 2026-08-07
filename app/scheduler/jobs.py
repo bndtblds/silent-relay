@@ -17,6 +17,7 @@ from app.security.core import FieldCipher, SessionManager, generate_token, keyed
 from app.services import DeliveryService, LifecycleService
 from app.smtp_config import load_email_provider
 from app.system_config import system_configuration
+from app.time import utc_now
 
 
 def run_jobs(settings: Settings) -> dict[str, int]:
@@ -32,7 +33,7 @@ def run_jobs(settings: Settings) -> dict[str, int]:
         deliveries = DeliveryService(
             settings, cipher, {"email": provider}
         ).process_due(db)
-        now = datetime.utcnow()
+        now = utc_now()
         reminders = 0
         due = list(db.scalars(select(ReviewReminder).where(
             ReviewReminder.sent_at.is_(None),

@@ -3,19 +3,16 @@ from __future__ import annotations
 import enum
 from datetime import datetime, timedelta
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from uuid6 import uuid7
 
 from app.model_base import Base
+from app.time import UTCDateTime, utc_now
 
 
 def uuid7_str() -> str:
     return str(uuid7())
-
-
-def utcnow() -> datetime:
-    return datetime.utcnow()
 
 
 class AccountStatus(str, enum.Enum):
@@ -49,15 +46,15 @@ class Account(Base):
     __tablename__ = "accounts"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid7_str)
     status: Mapped[AccountStatus] = mapped_column(Enum(AccountStatus), default=AccountStatus.pending_verification)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
-    activated_at: Mapped[datetime | None] = mapped_column(DateTime)
-    disabled_at: Mapped[datetime | None] = mapped_column(DateTime)
-    deletion_due_at: Mapped[datetime | None] = mapped_column(DateTime)
-    last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
-    next_review_due_at: Mapped[datetime | None] = mapped_column(DateTime)
-    review_grace_due_at: Mapped[datetime | None] = mapped_column(DateTime)
-    last_contact_problem_reminder_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
+    activated_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    disabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    deletion_due_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    next_review_due_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    review_grace_due_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    last_contact_problem_reminder_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     is_admin_locked: Mapped[bool] = mapped_column(Boolean, default=False)
     version: Mapped[int] = mapped_column(Integer, default=1)
     language_code: Mapped[str] = mapped_column(String(16), default="de")
@@ -69,12 +66,12 @@ class AccountOwnerCredential(Base):
     account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
     account_owner_token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     setup_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
-    setup_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    setup_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     password_hash: Mapped[str | None] = mapped_column(Text)
-    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    password_changed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     failed_login_count: Mapped[int] = mapped_column(Integer, default=0)
-    locked_until: Mapped[datetime | None] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     account: Mapped[Account] = relationship(back_populates="credential")
 
 
@@ -84,8 +81,8 @@ class Partner(Base):
     account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
     encrypted_name: Mapped[bytes] = mapped_column(LargeBinary)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
 
 
 class ContactMethod(Base):
@@ -98,15 +95,15 @@ class ContactMethod(Base):
     encrypted_value: Mapped[bytes] = mapped_column(LargeBinary)
     value_fingerprint: Mapped[str] = mapped_column(String(64))
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    verified_at: Mapped[datetime | None] = mapped_column(DateTime)
+    verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     verification_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
-    verification_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    verification_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     permanent_failure_count: Mapped[int] = mapped_column(Integer, default=0)
-    last_permanent_failure_at: Mapped[datetime | None] = mapped_column(DateTime)
-    last_review_expired_at: Mapped[datetime | None] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    last_permanent_failure_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    last_review_expired_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
     __table_args__ = (
         UniqueConstraint("account_id", "owner_type", "owner_id", "channel", "value_fingerprint"),
         Index("ix_contact_recipient", "account_id", "owner_type", "owner_id", "is_verified", "is_active"),
@@ -121,8 +118,8 @@ class TrustedPerson(Base):
     owner_id: Mapped[str] = mapped_column(String(36), index=True)
     encrypted_display_name: Mapped[bytes | None] = mapped_column(LargeBinary)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
     __table_args__ = (
         Index("ix_trusted_person_owner", "account_id", "owner_type", "owner_id", "is_active"),
     )
@@ -132,19 +129,19 @@ class TrustedPersonToken(Base):
     __tablename__ = "trusted_person_tokens"
     trusted_person_id: Mapped[str] = mapped_column(ForeignKey("trusted_persons.id", ondelete="CASCADE"), primary_key=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    rotated_at: Mapped[datetime | None] = mapped_column(DateTime)
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    rotated_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     pin_hash: Mapped[str | None] = mapped_column(Text)
     enrollment_expires_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.utcnow() + timedelta(days=14), index=True
+        UTCDateTime, default=lambda: utc_now() + timedelta(days=14), index=True
     )
-    enrolled_at: Mapped[datetime | None] = mapped_column(DateTime)
+    enrolled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     failed_pin_attempts: Mapped[int] = mapped_column(Integer, default=0)
-    locked_until: Mapped[datetime | None] = mapped_column(DateTime)
-    setup_notified_at: Mapped[datetime | None] = mapped_column(DateTime)
-    expiry_notified_at: Mapped[datetime | None] = mapped_column(DateTime)
+    locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    setup_notified_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    expiry_notified_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
 class Notification(Base):
@@ -152,13 +149,13 @@ class Notification(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid7_str)
     account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
     trusted_person_id: Mapped[str | None] = mapped_column(ForeignKey("trusted_persons.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     status: Mapped[NotificationStatus] = mapped_column(Enum(NotificationStatus), default=NotificationStatus.created)
     message_digest: Mapped[str] = mapped_column(String(64))
     encrypted_message_payload: Mapped[bytes | None] = mapped_column(LargeBinary)
-    release_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
-    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    release_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, index=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     deduplication_key: Mapped[str] = mapped_column(String(64), unique=True)
 
 
@@ -170,14 +167,14 @@ class Delivery(Base):
     provider: Mapped[str] = mapped_column(String(24))
     status: Mapped[DeliveryStatus] = mapped_column(Enum(DeliveryStatus), default=DeliveryStatus.pending)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
-    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime)
-    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
-    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime)
-    processing_until: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    next_retry_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    processing_until: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
     provider_message_id: Mapped[str | None] = mapped_column(String(255))
     encrypted_error_detail: Mapped[bytes | None] = mapped_column(LargeBinary)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    delivered_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    delivered_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     __table_args__ = (UniqueConstraint("notification_id", "contact_method_id"),)
 
 
@@ -190,10 +187,10 @@ class EmailDeliveryTracking(Base):
     contact_method_id: Mapped[str | None] = mapped_column(
         ForeignKey("contact_methods.id", ondelete="SET NULL"), index=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
-    last_reported_at: Mapped[datetime | None] = mapped_column(DateTime)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    last_reported_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     result: Mapped[str] = mapped_column(String(16), default="pending")
     status_code: Mapped[str | None] = mapped_column(String(32))
 
@@ -202,10 +199,10 @@ class AccountReview(Base):
     __tablename__ = "account_reviews"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid7_str)
     account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
-    review_due_at: Mapped[datetime] = mapped_column(DateTime)
-    details_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
-    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    review_due_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    details_confirmed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    confirmed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
 
 
 class ReviewReminder(Base):
@@ -213,8 +210,8 @@ class ReviewReminder(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid7_str)
     account_review_id: Mapped[str] = mapped_column(ForeignKey("account_reviews.id", ondelete="CASCADE"), index=True)
     relative_day: Mapped[int] = mapped_column(Integer)
-    scheduled_at: Mapped[datetime] = mapped_column(DateTime, index=True)
-    sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+    scheduled_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     __table_args__ = (UniqueConstraint("account_review_id", "relative_day"),)
 
 
@@ -227,11 +224,11 @@ class ContactReview(Base):
     contact_method_id: Mapped[str] = mapped_column(
         ForeignKey("contact_methods.id", ondelete="CASCADE"), index=True
     )
-    confirmation_due_at: Mapped[datetime] = mapped_column(DateTime, index=True)
-    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
-    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+    confirmation_due_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    last_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     last_reminder_day: Mapped[int | None] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     __table_args__ = (
         UniqueConstraint("account_review_id", "contact_method_id"),
     )
@@ -243,8 +240,8 @@ class ContactReviewToken(Base):
     contact_review_id: Mapped[str] = mapped_column(
         ForeignKey("contact_reviews.id", ondelete="CASCADE"), index=True
     )
-    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
 
 
 class ServerSession(Base):
@@ -256,8 +253,8 @@ class ServerSession(Base):
         ForeignKey("trusted_persons.id", ondelete="CASCADE"), index=True
     )
     csrf_hash: Mapped[str] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
 
 
 class Submission(Base):
@@ -265,9 +262,9 @@ class Submission(Base):
     id_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     trusted_person_id: Mapped[str] = mapped_column(ForeignKey("trusted_persons.id", ondelete="CASCADE"))
     encrypted_message: Mapped[bytes] = mapped_column(LargeBinary)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    expires_at: Mapped[datetime] = mapped_column(DateTime)
-    consumed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    consumed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
 class AuditLog(Base):
@@ -276,7 +273,7 @@ class AuditLog(Base):
     account_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"), index=True)
     event_type: Mapped[str] = mapped_column(String(64))
     technical_metadata: Mapped[str] = mapped_column(Text, default="{}")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, index=True)
     request_id: Mapped[str | None] = mapped_column(String(36))
 
 
@@ -296,7 +293,7 @@ class SmtpConfiguration(Base):
     encrypted_imap_username: Mapped[bytes | None] = mapped_column(LargeBinary)
     encrypted_imap_password: Mapped[bytes | None] = mapped_column(LargeBinary)
     ndr_acknowledged_address_fingerprint: Mapped[str | None] = mapped_column(String(64))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
 
 
 class SystemConfiguration(Base):
@@ -312,7 +309,7 @@ class SystemConfiguration(Base):
     account_retention_after_disable_days: Mapped[int] = mapped_column(Integer, default=365)
     message_retention_hours: Mapped[int] = mapped_column(Integer, default=48)
     audit_retention_days: Mapped[int] = mapped_column(Integer, default=90)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
 
 
 class PublicSiteContent(Base):
@@ -322,8 +319,8 @@ class PublicSiteContent(Base):
     privacy_text: Mapped[str] = mapped_column(Text)
     contact_email: Mapped[str] = mapped_column(String(320))
     contact_text: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
 
 
 class RateLimitBucket(Base):
@@ -331,5 +328,5 @@ class RateLimitBucket(Base):
     id_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     action: Mapped[str] = mapped_column(String(48), index=True)
     request_count: Mapped[int] = mapped_column(Integer)
-    window_started_at: Mapped[datetime] = mapped_column(DateTime)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    window_started_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)

@@ -204,6 +204,12 @@ Keep HTTP handling in routers and business rules in the service layer. Reuse
 the existing provider, session, encryption, and database abstractions instead
 of duplicating them.
 
+Use `app.time.utc_now()` for the current time and keep application datetimes
+timezone-aware in UTC. Persisted model timestamps use `UTCDateTime`, which
+stores normalized naive UTC values for SQLite compatibility and restores UTC
+timezone information when values are loaded. Do not use `datetime.utcnow()` or
+interpret a naive datetime as local time.
+
 The regular review has two independent confirmations. `AccountReview`
 records the account owner's review of people and assignments.
 `ContactReview` records confirmation of each active contact method.

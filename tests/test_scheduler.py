@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 import threading
 
 from sqlalchemy import create_engine, func, select
@@ -20,6 +20,7 @@ from app.providers.base import DeliveryResult
 from app.scheduler import jobs
 from app.security.core import hash_pin
 from app.services import AccountService, DeliveryService, ManagementService, NotificationService
+from app.time import utc_now
 
 
 class RecordingProvider:
@@ -51,12 +52,12 @@ def test_account_owner_is_notified_about_trusted_pin_setup_and_expiry(
     )
     first_token = db.get(TrustedPersonToken, first.id)
     first_token.pin_hash = hash_pin("472915")
-    first_token.enrolled_at = datetime.utcnow()
+    first_token.enrolled_at = utc_now()
     second, _ = management.add_trusted_person(
         db, account.id, "account", account.id, "Second"
     )
     second_token = db.get(TrustedPersonToken, second.id)
-    second_token.enrollment_expires_at = datetime.utcnow() - timedelta(seconds=1)
+    second_token.enrollment_expires_at = utc_now() - timedelta(seconds=1)
     db.commit()
 
     RecordingProvider.sent = []
@@ -87,7 +88,7 @@ def test_review_reminder_is_not_sent_twice(db, settings, cipher, monkeypatch):
     _, verification = service.setup(db, setup, "correct horse battery staple", "owner@example.org")
     service.verify_contact(db, verification)
     reminder = db.scalar(select(ReviewReminder).order_by(ReviewReminder.scheduled_at))
-    reminder.scheduled_at = datetime.utcnow() - timedelta(seconds=1)
+    reminder.scheduled_at = utc_now() - timedelta(seconds=1)
     db.commit()
 
     RecordingProvider.sent = []
@@ -122,16 +123,16 @@ def test_due_review_sends_one_time_confirmation_to_every_contact(
         AccountReview.account_id == account.id,
         AccountReview.confirmed_at.is_(None),
     ))
-    review.review_due_at = datetime.utcnow() - timedelta(seconds=1)
+    review.review_due_at = utc_now() - timedelta(seconds=1)
     account.next_review_due_at = review.review_due_at
-    account.review_grace_due_at = datetime.utcnow() + timedelta(days=60)
+    account.review_grace_due_at = utc_now() + timedelta(days=60)
     for reminder in db.scalars(select(ReviewReminder).where(
         ReviewReminder.account_review_id == review.id
     )):
         reminder.scheduled_at = (
-            datetime.utcnow() - timedelta(seconds=1)
+            utc_now() - timedelta(seconds=1)
             if reminder.relative_day == 0
-            else datetime.utcnow() + timedelta(days=90)
+            else utc_now() + timedelta(days=90)
         )
     db.commit()
 
@@ -180,7 +181,7 @@ def test_account_owner_is_reminded_about_broken_partner_contact(
         ContactMethod.owner_id == partner.id,
     ))
     broken.is_verified = False
-    broken.last_permanent_failure_at = datetime.utcnow()
+    broken.last_permanent_failure_at = utc_now()
     db.commit()
 
     RecordingProvider.sent = []

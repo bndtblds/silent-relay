@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, timedelta
 
 import qrcode
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -41,6 +41,7 @@ from app.security.core import (
 from app.services import AccountService, AuthenticationService, DeliveryService, ManagementService, NotificationService
 from app.smtp_config import load_email_provider
 from app.system_config import notification_delay_minutes, system_configuration
+from app.time import utc_now
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -268,7 +269,7 @@ async def create_account(
 def setup_form(token: str, request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
     credential = db.scalar(select(AccountOwnerCredential).where(
         AccountOwnerCredential.setup_token_hash == keyed_hash(token, settings.token_hmac_key),
-        AccountOwnerCredential.setup_expires_at > datetime.utcnow(),
+        AccountOwnerCredential.setup_expires_at > utc_now(),
     ))
     if not credential:
         raise HTTPException(404)
@@ -432,7 +433,7 @@ def dashboard(
         ))
     }
     notification_service = NotificationService(settings, cipher)
-    now = datetime.utcnow()
+    now = utc_now()
 
     def person_row(person: TrustedPerson) -> dict[str, object]:
         token_record = token_records.get(person.id)
@@ -531,7 +532,7 @@ def dashboard(
         review={
             "due": bool(
                 current_review
-                and current_review.review_due_at <= datetime.utcnow()
+                and current_review.review_due_at <= utc_now()
             ),
             "details_confirmed": bool(
                 current_review and current_review.details_confirmed_at
@@ -655,7 +656,7 @@ def resend_contact_verification(
         raise HTTPException(404)
     token = generate_token()
     contact.verification_token_hash = keyed_hash(token, settings.token_hmac_key)
-    contact.verification_expires_at = datetime.utcnow() + timedelta(hours=24)
+    contact.verification_expires_at = utc_now() + timedelta(hours=24)
     contact.is_verified = False
     db.commit()
     value = FieldCipher(settings.field_encryption_key).decrypt(contact.encrypted_value)
@@ -901,7 +902,7 @@ def notify_form(token: str, request: Request, db: Session = Depends(get_db), set
     person, record = access
     account = db.get(Account, person.account_id)
     if not record.pin_hash:
-        if record.enrollment_expires_at <= datetime.utcnow():
+        if record.enrollment_expires_at <= utc_now():
             return templates.TemplateResponse(
                 request, "trusted_access_expired.html",
                 context(request, account.language_code), status_code=410,
@@ -927,8 +928,8 @@ def notify_form(token: str, request: Request, db: Session = Depends(get_db), set
                 cipher.decrypt(notification.encrypted_message_payload)
                 if notification.encrypted_message_payload else ""
             ),
-            "release_at_iso": notification.release_at.replace(
-                tzinfo=timezone.utc
+            "release_at_iso": notification.release_at.astimezone(
+                UTC
             ).isoformat().replace("+00:00", "Z"),
             "release_at_fallback": (
                 f"{format_datetime(notification.release_at, account.language_code)} UTC"
@@ -961,7 +962,7 @@ def trusted_setup(
     account = db.get(Account, person.account_id)
     if record.pin_hash:
         return RedirectResponse(f"/notify/{token}", 303)
-    if record.enrollment_expires_at <= datetime.utcnow():
+    if record.enrollment_expires_at <= utc_now():
         return templates.TemplateResponse(
             request, "trusted_access_expired.html",
             context(request, account.language_code), status_code=410,
@@ -982,7 +983,7 @@ def trusted_setup(
                 error=error,
             ), status_code=400,
         )
-    now = datetime.utcnow()
+    now = utc_now()
     record.enrolled_at = now
     record.failed_pin_attempts = 0
     record.locked_until = None
@@ -1007,7 +1008,7 @@ def trusted_login(
         raise HTTPException(404)
     person, record = access
     account = db.get(Account, person.account_id)
-    now = datetime.utcnow()
+    now = utc_now()
     if not record.pin_hash:
         return RedirectResponse(f"/notify/{token}", 303)
     if record.locked_until and record.locked_until > now:
@@ -1083,7 +1084,7 @@ def notify_confirm(
         raise HTTPException(409, translate(account.language_code, "error.submission"))
     cipher = FieldCipher(settings.field_encryption_key)
     DeliveryService(settings, cipher, {"email": load_email_provider(db, settings, cipher)}).process_due(db)
-    if notification.release_at > datetime.utcnow():
+    if notification.release_at > utc_now():
         return RedirectResponse(f"/notify/{token}?queued={notification.id}", 303)
     return RedirectResponse("/notification/success", 303)
 
