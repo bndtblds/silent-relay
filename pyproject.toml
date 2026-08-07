@@ -1,6 +1,6 @@
 [project]
 name = "silent-relay"
-version = "1.0.2"
+dynamic = ["version"]
 description = "A self-hosted private notification service for trusted contacts."
 requires-python = ">=3.12"
 dependencies = [
@@ -33,6 +33,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.hatch.version]
+path = "app/version.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

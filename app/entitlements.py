@@ -12,6 +12,9 @@ from typing import Awaitable, Protocol, TypeVar, cast
 logger = logging.getLogger("silent_relay")
 
 
+ENTITLEMENT_PROVIDER_CONTRACT_VERSION = 1
+
+
 @dataclass(frozen=True)
 class RegistrationContext:
     pass
@@ -38,6 +41,8 @@ class AccountCreatedHook(Protocol):
 
 
 class AllowAllEntitlementProvider:
+    contract_version = ENTITLEMENT_PROVIDER_CONTRACT_VERSION
+
     async def registration_policy(
         self, context: RegistrationContext
     ) -> RegistrationDecision:

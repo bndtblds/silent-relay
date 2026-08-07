@@ -319,6 +319,16 @@ production configuration.
 
 ## Before committing
 
+Advance the canonical version in `app/version.py` for every commit, refresh
+`uv.lock`, and verify the version transition:
+
+```sh
+uv run python scripts/check_version.py
+```
+
+The complete versioning and release rules are documented in
+[Versioning and releases](VERSIONING.md).
+
 Run the checks relevant to the change. For ordinary application changes:
 
 ```sh

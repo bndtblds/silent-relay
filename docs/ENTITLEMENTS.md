@@ -1,5 +1,19 @@
 # Entitlement provider
 
+## Contract version
+
+The public entitlement-provider interface in this release is contract version
+`1`, exposed as `ENTITLEMENT_PROVIDER_CONTRACT_VERSION` in
+`app.entitlements`. The built-in `allow_all` provider declares this version.
+
+Contract versions are small integers and are independent of the SilentRelay
+Semantic Version. Version 1 consists of the registration decision and the
+optional account-created hook documented below. An incompatible change to a
+public context, result, enum, protocol, or hook requires a new contract version
+and a suitable SilentRelay version. Backward-compatible additions may retain
+the current contract version only while existing providers remain safe and
+functional.
+
 SilentRelay has a deliberately small extension point for deciding whether a
 public account registration may create an account. It lets an operator apply
 deployment-specific registration rules while the open-source core retains
