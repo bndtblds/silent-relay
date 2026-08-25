@@ -77,6 +77,7 @@ textarea { min-height: 12rem; resize: vertical; }
 .inline-edit { display: flex; align-items: stretch; gap: .55rem; }
 .inline-edit input { min-width: 0; font-size: 1.1rem; font-weight: 750; }
 .inline-edit button { white-space: nowrap; }
+.owner-name-form + .form-hint { margin-top: .45rem; }
 .card-section { padding: 1.35rem; border-top: 1px solid var(--border); }
 .card-section h4 { margin: 0; font-size: 1.15rem; }
 .card-section > p, .section-heading p { color: var(--muted); }
@@ -91,10 +92,24 @@ textarea { min-height: 12rem; resize: vertical; }
 .summary-grid strong { display: block; margin-top: .25rem; font-size: 1.05rem; }
 .section-nav { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1.5rem 0 2.5rem; padding: .8rem; border-radius: .6rem; background: var(--accent-soft); }
 .section-nav a { padding: .4rem .6rem; font-weight: 700; }
+.inbox-cta { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; margin: 1.5rem 0; padding: 1.25rem 1.4rem; border-radius: .75rem; background: var(--accent); color: #fff; box-shadow: var(--shadow); text-decoration: none; }
+.inbox-cta:hover { background: var(--accent-dark); }
+.inbox-cta .eyebrow { color: #d8fffd; }
+.inbox-cta strong, .inbox-cta small { display: block; }
+.inbox-cta strong { margin: .2rem 0; color: #fff; font-size: 1.35rem; }
+.inbox-cta small { color: #e6ffff; line-height: 1.45; }
+.inbox-cta-action { flex: 0 0 auto; font-weight: 800; }
 .settings-nav { display: flex; gap: .35rem; margin: 0 0 1.5rem; padding: .35rem; border: 1px solid var(--border); border-radius: .65rem; background: #fff; }
 .settings-nav a { padding: .7rem 1rem; border-radius: .4rem; color: #26373f; font-weight: 750; text-decoration: none; }
 .settings-nav a:hover { background: var(--surface-muted); }
-.settings-nav a.active { background: var(--accent); color: #fff; }
+.settings-nav a.active { background: var(--accent-soft); color: var(--accent-dark); box-shadow: inset 0 -2px 0 var(--accent); }
+.admin-nav { padding: .35rem; border: 1px solid var(--border); border-radius: .65rem; background: #fff; }
+.admin-nav .nav-link { padding: .7rem 1rem; border: 0; background: transparent; color: #26373f; }
+.admin-nav .nav-link:hover { background: var(--surface-muted); color: #102027; }
+.admin-nav .nav-link.active { background: var(--accent-soft); color: var(--accent-dark); box-shadow: inset 0 -2px 0 var(--accent); }
+.language-nav { display: inline-flex; gap: .35rem; padding: .3rem; border: 1px solid var(--border); border-radius: .6rem; background: var(--surface-muted); }
+.language-nav .button { border: 0; background: transparent; color: #26373f; }
+.language-nav .button.active { background: #fff; color: var(--accent-dark); box-shadow: 0 1px 4px rgb(23 34 43 / 12%); }
 .setting-card > div:first-child { max-width: 50rem; }
 .setting-card > div:first-child > p { color: var(--muted); }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1rem; max-width: 50rem; }
@@ -163,6 +178,8 @@ textarea { min-height: 12rem; resize: vertical; }
 .copy-fallback { position: fixed; left: -9999px; width: 1px; height: 1px; }
 .access-sheet { margin: 1rem 0; }
 .access-sheet.centered { text-align: center; }
+.access-result .lead { margin-bottom: .5rem; }
+.access-result .handover-note { margin-top: .4rem; color: var(--muted); }
 .qr-code { width: min(18rem, 100%); height: auto; }
 .screen-actions, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; }
 .admin-nav .admin-logout { flex-basis: 100%; margin-top: .2rem; }
@@ -170,6 +187,7 @@ textarea { min-height: 12rem; resize: vertical; }
 .screen-actions form, .actions form { margin: 0; }
 .settings-actions { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 .settings-actions .danger-action { margin-left: auto; }
+.print-only { display: none; }
 
 .item-list { list-style: none; padding: 0; margin: 1rem 0; }
 .item-list li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem 0; border-bottom: 1px solid var(--border); }
@@ -210,6 +228,8 @@ th, td { padding: .7rem; border-bottom: 1px solid var(--border); text-align: lef
   .page-header, .section-heading, .item-list li { display: block; }
   .page-header > form, .actions { margin-top: .8rem; }
   .account-settings-primary { grid-template-columns: 1fr; }
+  .inbox-cta { display: block; }
+  .inbox-cta-action { display: block; margin-top: 1rem; }
   .account-settings-primary p { min-height: 0; }
   .trusted-person-list .actions { justify-content: flex-start; }
   .settings-actions .danger-action { flex-basis: 100%; margin-left: 0; margin-top: .35rem; }
@@ -222,11 +242,19 @@ th, td { padding: .7rem; border-bottom: 1px solid var(--border); text-align: lef
 }
 
 @media print {
+  @page { size: A4 portrait; margin: 16mm; }
   body { color: #000; background: #fff; }
-  .site-header, .site-footer, .screen-actions, .progress, .skip-link, .copy-control { display: none; }
+  .site-header, .site-footer, .screen-only, .screen-actions, .progress, .skip-link, .copy-control { display: none !important; }
+  .print-only { display: block; }
   main { max-width: none; padding: 0; }
-  .access-sheet { border: 0; box-shadow: none; }
-  .warning { border: 1px solid #000; background: #fff; color: #000; }
-  .secret { border: 1px solid #000; }
-  .qr-code { width: 7cm; max-width: 7cm; }
+  .print-access-sheet { max-width: 178mm; margin: 0 auto; color: #000; font-size: 11pt; }
+  .print-brand { display: flex; align-items: center; gap: 3mm; padding-bottom: 5mm; border-bottom: 1px solid #777; font-size: 14pt; font-weight: 800; }
+  .print-brand .brand-mark { width: 9mm; height: 9mm; print-color-adjust: exact; }
+  .print-access-sheet h1 { margin: 8mm 0 3mm; color: #000; font-size: 24pt; }
+  .print-access-sheet p { line-height: 1.45; }
+  .print-access-sheet .qr-code { display: block; width: 72mm; max-width: 72mm; margin: 8mm auto 5mm; }
+  .print-access-link { overflow-wrap: anywhere; padding: 4mm; border: 1px solid #555; border-radius: 2mm; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 9.5pt; }
+  .print-instructions { margin-top: 7mm; padding-top: 5mm; border-top: 1px solid #aaa; }
+  .print-instructions h2 { color: #000; font-size: 14pt; }
+  .print-security { margin-top: 5mm; padding: 4mm; border: 1.5px solid #000; font-weight: 700; }
 }

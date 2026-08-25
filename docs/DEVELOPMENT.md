@@ -375,6 +375,10 @@ preserve these rules:
 - never store or log inbound email bodies, attachments, returned messages, or
   addresses found in delivery reports;
 - never expose recipient identities or recipient counts to a trusted person;
+- never place confidential message text, the person concerned, relationships,
+  recipient counts, or secret account/partner access in notification emails;
+- keep domain-level inbox recipients and `read_at` separate from SMTP delivery
+  state, and fix recipients only at release time;
 - keep sensitive database fields encrypted;
 - hash authentication tokens instead of storing them in clear text;
 - keep account-owner and technical-admin sessions separate;
@@ -382,7 +386,9 @@ preserve these rules:
   contacts, and bind their short-lived server sessions to the trusted person;
 - keep CSRF protection on state-changing browser actions;
 - do not enable access logs for secret-bearing URL paths;
-- remove temporary message content according to the existing lifecycle; and
+- erase encrypted message content after every still-authorized original
+  recipient confirms reading, or at the end of the configured retention period
+  after release (30 days by default and at most); and
 - prefer the smallest implementation that satisfies the requirement.
 
 When a change intentionally alters an established security or privacy

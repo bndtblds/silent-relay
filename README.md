@@ -5,8 +5,12 @@ It lets a trusted person send a confidential message without seeing who will
 receive it or which contact details are stored.
 
 The account owner decides who belongs to the group, which contact methods are
-used, and which trusted persons may send messages. SilentRelay then determines
-the recipients on the server and delivers the message by email.
+used, and which trusted persons may send messages. SilentRelay fixes the
+account holder and every active partner with completed personal-access setup as
+recipients on the server at release time. The confidential message is available
+in each recipient's authenticated SilentRelay inbox even without a verified
+contact method; active verified contact methods receive only neutral email
+notices.
 
 SilentRelay is not an emergency service, medical alarm, messenger, or
 high-availability system.
@@ -32,7 +36,8 @@ replace emergency services or official arrangements.
 ## What SilentRelay provides
 
 - A guided setup for account owners
-- Partners and trusted persons within one private group
+- Partners with personal secret access plus password, and trusted persons
+  within one private group
 - Secret, printable QR access plus a personal six-digit PIN for each trusted
   person
 - Confidential message submission with a review step, a ten-minute waiting
@@ -43,7 +48,28 @@ replace emergency services or official arrangements.
 - Optional automatic detection of permanent email delivery failures
 - German and English user interfaces with one consistent language per account
 - A separate technical administration area
-- Encrypted sensitive data and automatic removal of delivered message content
+- Protected personal inboxes for the account holder and activated partners
+- Inbox delivery does not depend on email availability; verified contact
+  methods are used only for neutral availability notices
+- Encrypted names for the account holder, partners, and trusted contacts; the
+  relevant account-holder or partner name is shown only in authorized inboxes
+- Encrypted message storage until every still-authorized original recipient
+  confirms reading, but no longer than the configured retention period after
+  release (30 days by default and at most)
+
+Email notices never contain the confidential text, the person concerned, a
+relationship, recipient count, or secret access details. Partner links and QR
+codes are shown once to the account holder for direct handover and are never
+sent by email. SilentRelay cannot prevent screenshots, copied content, or
+disclosure from a compromised authenticated browser.
+
+In the recommended production deployment, recipients retrieve confidential
+content directly from SilentRelay over authenticated HTTPS. This protects the
+transport between the browser and the SilentRelay instance. Email transport
+does not provide the same end-to-end guarantee: SMTP TLS can be hop-by-hop or
+opportunistic, and messages may persist in receiving servers, mailboxes,
+forwarding systems, clients, and their backups. HTTPS does not protect content
+after display on a compromised device and cannot prevent copying or screenshots.
 
 ## Requirements
 

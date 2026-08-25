@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-<div class="progress"><span>✓</span><span class="active">2</span><span>3</span></div>
+<div class="screen-only"><div class="progress"><span>✓</span><span class="active">2</span><span>3</span></div>
 <article class="access-sheet">
   <span class="eyebrow">{{ t("created.eyebrow") }}</span><h1>{{ t("created.heading") }}</h1>
   <p class="lead">{{ t("created.lead") }}</p>
@@ -19,8 +19,18 @@
   </div>
 </article>
 <div class="screen-actions">
-  <button type="button" data-print-button>{{ t("created.print") }}</button>
+  <button class="secondary" type="button" data-print-button>{{ t("created.print") }}</button>
   <a class="button" href="{{ setup_url }}">{{ t("created.continue") }}</a>
 </div>
+</div>
+<article class="print-only print-access-sheet">
+  <div class="print-brand"><span class="brand-mark" aria-hidden="true">SR</span><span>SilentRelay</span></div>
+  <h1>{{ t("created.heading") }}</h1>
+  <p>{{ t("created.lead") }}</p>
+  <img class="qr-code" src="data:image/png;base64,{{ qr }}" alt="{{ t('created.qr_alt') }}">
+  <h2>{{ t("created.link") }}</h2>
+  <p class="print-access-link">{{ account_owner_url }}</p>
+  <div class="print-instructions"><h2>{{ t("common.next") }}</h2><p>{{ t("created.warning") }}</p></div>
+</article>
 <script src="/static/print.js" defer></script>
 {% endblock %}

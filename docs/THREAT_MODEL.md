@@ -27,8 +27,23 @@ SilentRelay cannot keep data secret from a fully compromised server. An
 attacker who controls the host can read application memory, runtime keys, and
 decrypted data.
 
-Email is not end-to-end encrypted by SilentRelay. The configured SMTP server
-and the recipients' mail systems necessarily receive the message text.
+Email is not end-to-end encrypted by SilentRelay. SMTP TLS can be hop-by-hop or
+opportunistic, and receiving servers, forwarding systems, mailboxes, clients,
+and their backups remain outside SilentRelay's control. Mail systems therefore
+receive only a neutral availability notice and never the confidential text.
+
+At release, the account holder and every active partner with completed personal
+access are fixed as authenticated inbox recipients even if they have no verified
+email address. Verified contact methods control only neutral email notices. A
+missing or failed email notice can delay awareness of a message, but it does not
+remove the message from that recipient's protected inbox; the independent
+maximum retention period still applies.
+
+In the required production deployment, an authenticated recipient retrieves
+the confidential text directly from SilentRelay over HTTPS. TLS encrypts this
+browser-to-SilentRelay transport and authenticates the configured origin. It
+does not protect against a compromised SilentRelay host, a compromised
+authenticated browser or device, screenshots, or copied content.
 
 SilentRelay is not an emergency, medical, or high-availability service. A
 server, network, DNS, or mail outage can delay or prevent delivery.
@@ -58,11 +73,11 @@ trusted with account or recipient information.
 | Someone obtains the account-owner QR code | The management area additionally requires the account password and creates a short-lived server session. |
 | An account-owner credential is changed while another browser is still signed in | Changing the account password or replacing the account-owner access link immediately revokes every account-owner session for that account. Sessions for other accounts and other session kinds are not affected. |
 | Secret links appear in logs or referrer headers | Proxy and application access logs are disabled, responses use `no-referrer` and `no-store`, and pages load no external resources. |
-| The database is copied | Sensitive fields are encrypted. Passwords use Argon2id, while access tokens and fingerprints are stored as keyed hashes. Keys remain outside the database in `.env`. |
+| The database is copied | Sensitive fields, including account-holder, partner, and trusted-contact names, are encrypted. Passwords use Argon2id, while access tokens and fingerprints are stored as keyed hashes. Keys remain outside the database in `.env`. |
 | A browser request changes data without permission | State-changing forms require a session-bound CSRF token. Account-owner and technical-admin sessions are separate. |
 | Entered text injects executable browser code | Jinja escapes normal output, notification text is plain text, public Markdown uses a small allowlist, and a restrictive Content Security Policy is sent. |
 | Confidential data appears in logs | Logs contain technical events only. Message text, contact details, credentials, cookies, access tokens, and inbound email content must never be logged. |
-| The SMTP server is temporarily unavailable | Encrypted temporary payloads are retried a limited number of times with increasing delays and are removed after delivery or expiry. |
+| The SMTP server is temporarily unavailable | Neutral notices are retried a limited number of times with increasing delays. The encrypted inbox content follows its independent read-confirmation and 30-day lifecycle. |
 | A scheduler process or container stops while processing a delivery | A two-minute database lease records when the claim began and when it expires. A later scheduler cycle can reclaim an expired claim and repeats the complete send-time authorization check. |
 | Permission changes after a notification is accepted | Immediately before every SMTP attempt, SilentRelay rechecks the account, contact, ownership, partner, notification, payload, and expiry inside the same transaction as the send attempt. A withdrawn delivery is cancelled without calling the provider or scheduling another retry. |
 | Two schedulers process the same SQLite database | Exactly one scheduler instance is supported with SQLite. An atomic conditional claim and a time-bounded lease prevent an accidentally overlapping cycle from taking a live claim. |
@@ -158,7 +173,12 @@ this is the accepted ADR 0013 limitation, not an exactly-once guarantee.
 The following limitations are accepted:
 
 - A compromised host can access runtime secrets and decrypted data.
-- Mail servers and recipient systems receive plaintext notification content.
+- Mail servers receive only neutral notices. An authenticated recipient's
+  browser receives the decrypted content after HTTPS transport and can copy it
+  or capture screenshots; SilentRelay cannot prevent disclosure from a
+  compromised authenticated browser.
+- A trusted person may enter personal data in free text. It remains inside the
+  protected message flow and is not automatically disclosed by email.
 - SMTP delivery cannot be atomically committed together with SQLite. A crash
   in a narrow window can cause a duplicate external email; see ADR 0013.
 - Delivery reports can be missing, delayed, non-standard, or deliberately

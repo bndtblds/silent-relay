@@ -29,4 +29,10 @@ def test_language_and_missing_translation_fallback_are_deterministic():
     assert normalize_language("EN-us") == "en"
     assert normalize_language("fr", "en") == "en"
     assert translate("en", "home.create") == "Create an account"
+    assert translate("de", "inbox.intro") == (
+        "Hier lesen Sie Ihre vertraulichen Nachrichten und bestätigen sie ausdrücklich als gelesen."
+    )
+    assert translate("en", "inbox.intro") == (
+        "Here you can read your confidential messages and explicitly confirm them as read."
+    )
     assert translate("en", "missing.translation.key") == "missing.translation.key"

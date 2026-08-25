@@ -14,8 +14,8 @@ from app.i18n import email_body, normalize_language, translate
 from app.models import (
     Account, AccountOwnerCredential, AccountReview, AccountStatus, AuditLog, ContactMethod,
     ContactReview, ContactReviewToken, Delivery, DeliveryStatus, Notification,
-    NotificationStatus, Partner, ReviewReminder, ServerSession, Submission, TrustedPerson,
-    TrustedPersonToken,
+    NotificationRecipient, NotificationStatus, Partner, PartnerCredential, ReviewReminder,
+    ServerSession, Submission, TrustedPerson, TrustedPersonToken,
 )
 from app.providers.base import NotificationProvider
 from app.security.core import (
@@ -55,12 +55,23 @@ class AccountService:
         db.commit()
         return account, account_owner_token, setup_token
 
-    def setup(self, db: Session, setup_token: str, password: str, email: str) -> tuple[Account, str]:
+    @staticmethod
+    def normalize_owner_name(name: str, language: str) -> str:
+        normalized = name.strip()
+        if not 1 <= len(normalized) <= 200:
+            raise ValueError(translate(language, "error.owner_name"))
+        return normalized
+
+    def setup(
+        self, db: Session, setup_token: str, password: str, email: str,
+        owner_name: str = "Account holder",
+    ) -> tuple[Account, str]:
         token_hash = keyed_hash(setup_token, self.settings.token_hmac_key)
         credential = db.scalar(select(AccountOwnerCredential).where(AccountOwnerCredential.setup_token_hash == token_hash))
         if not credential or not credential.setup_expires_at or credential.setup_expires_at <= utc_now():
             raise LookupError(translate(self.settings.default_language, "error.setup_link"))
         language = credential.account.language_code
+        normalized_name = self.normalize_owner_name(owner_name, language)
         normalized_email = email.strip().casefold()
         if "@" not in normalized_email or len(normalized_email) > 320:
             raise ValueError(translate(language, "error.email"))
@@ -69,6 +80,7 @@ class AccountService:
         except ValueError as exc:
             raise ValueError(translate(language, "error.password_length")) from exc
         credential.password_changed_at = utc_now()
+        credential.account.encrypted_owner_name = self.cipher.encrypt(normalized_name)
         credential.setup_token_hash = None
         credential.setup_expires_at = None
         verification_token = generate_token()
@@ -294,6 +306,12 @@ class ManagementService:
     def __init__(self, settings: Settings, cipher: FieldCipher):
         self.settings, self.cipher = settings, cipher
 
+    def update_owner_name(self, db: Session, account: Account, name: str) -> None:
+        normalized = AccountService.normalize_owner_name(name, account.language_code)
+        account.encrypted_owner_name = self.cipher.encrypt(normalized)
+        audit(db, "account_owner_name_changed", account.id)
+        db.commit()
+
     def add_contact(self, db: Session, account_id: str, owner_type: str, owner_id: str, value: str) -> str:
         if owner_type not in {"account", "partner"}:
             raise ValueError
@@ -309,10 +327,78 @@ class ManagementService:
         return token
 
     def add_partner(self, db: Session, account_id: str, name: str) -> Partner:
+        partner, _ = self.add_partner_with_access(db, account_id, name)
+        return partner
+
+    def add_partner_with_access(
+        self, db: Session, account_id: str, name: str
+    ) -> tuple[Partner, str]:
         partner = Partner(account_id=account_id, encrypted_name=self.cipher.encrypt(name.strip()))
         db.add(partner)
+        db.flush()
+        token = generate_token()
+        db.add(PartnerCredential(
+            partner_id=partner.id,
+            token_hash=keyed_hash(token, self.settings.token_hmac_key),
+            enrollment_expires_at=utc_now() + timedelta(days=14),
+        ))
+        audit(db, "partner_created", account_id)
         db.commit()
-        return partner
+        return partner, token
+
+    def rotate_partner_access(self, db: Session, account_id: str, partner_id: str) -> str:
+        partner = db.scalar(select(Partner).where(
+            Partner.id == partner_id, Partner.account_id == account_id
+        ))
+        credential = db.get(PartnerCredential, partner_id) if partner else None
+        if not partner:
+            raise LookupError
+        token = generate_token()
+        now = utc_now()
+        token_hash = keyed_hash(token, self.settings.token_hmac_key)
+        if credential is None:
+            credential = PartnerCredential(
+                partner_id=partner.id,
+                token_hash=token_hash,
+                enrollment_expires_at=now + timedelta(days=14),
+                rotated_at=now,
+            )
+            db.add(credential)
+        else:
+            credential.token_hash = token_hash
+            credential.password_hash = None
+            credential.enrolled_at = None
+            credential.enrollment_expires_at = now + timedelta(days=14)
+            credential.password_changed_at = None
+            credential.rotated_at = now
+            credential.failed_login_count = 0
+            credential.locked_until = None
+            credential.setup_notified_at = None
+            credential.expiry_notified_at = None
+        SessionManager(self.settings).revoke_partner_sessions(db, partner_id)
+        audit(db, "partner_access_rotated", account_id)
+        db.commit()
+        return token
+
+    def set_partner_active(
+        self, db: Session, account_id: str, partner_id: str, active: bool
+    ) -> None:
+        partner = db.scalar(select(Partner).where(
+            Partner.id == partner_id, Partner.account_id == account_id
+        ))
+        if not partner:
+            raise LookupError
+        partner.is_active = active
+        if not active:
+            SessionManager(self.settings).revoke_partner_sessions(db, partner_id)
+        audit(db, "partner_enabled" if active else "partner_disabled", account_id)
+        db.commit()
+        if not active:
+            for notification_id in db.scalars(select(NotificationRecipient.notification_id).where(
+                NotificationRecipient.owner_type == "partner",
+                NotificationRecipient.owner_id == partner_id,
+            )):
+                InboxService.erase_if_complete(db, notification_id, utc_now())
 
     def add_trusted_person(
         self, db: Session, account_id: str, owner_type: str, owner_id: str, name: str,
@@ -370,15 +456,79 @@ class ManagementService:
         return token
 
 
+class PartnerAuthenticationService:
+    def __init__(self, settings: Settings):
+        self.settings = settings
+
+    def resolve_access(self, db: Session, token: str) -> tuple[Partner, PartnerCredential] | None:
+        credential = db.scalar(select(PartnerCredential).where(
+            PartnerCredential.token_hash == keyed_hash(token, self.settings.token_hmac_key)
+        ))
+        partner = db.get(Partner, credential.partner_id) if credential else None
+        account = db.get(Account, partner.account_id) if partner else None
+        if (
+            not credential or not partner or not partner.is_active or not account
+            or account.status not in {AccountStatus.active, AccountStatus.overdue}
+            or account.is_admin_locked
+        ):
+            return None
+        return partner, credential
+
+    def enroll(self, db: Session, credential: PartnerCredential, password: str) -> None:
+        now = utc_now()
+        if credential.password_hash or credential.enrollment_expires_at <= now:
+            raise LookupError
+        credential.password_hash = hash_password(password)
+        credential.enrolled_at = now
+        credential.password_changed_at = now
+        credential.failed_login_count = 0
+        credential.locked_until = None
+        db.commit()
+
+    def login(self, db: Session, credential: PartnerCredential, password: str) -> bool:
+        now = utc_now()
+        if (
+            not credential.password_hash
+            or (credential.locked_until and credential.locked_until > now)
+            or not verify_password(credential.password_hash, password)
+        ):
+            credential.failed_login_count += 1
+            if credential.failed_login_count >= 5:
+                credential.locked_until = now + timedelta(
+                    minutes=min(30, credential.failed_login_count)
+                )
+            db.commit()
+            return False
+        credential.failed_login_count = 0
+        credential.locked_until = None
+        db.commit()
+        return True
+
+    def change_password(
+        self, db: Session, partner_id: str, current_password: str, new_password: str
+    ) -> bool:
+        credential = db.get(PartnerCredential, partner_id)
+        if not credential or not verify_password(credential.password_hash, current_password):
+            return False
+        credential.password_hash = hash_password(new_password)
+        credential.password_changed_at = utc_now()
+        SessionManager(self.settings).revoke_partner_sessions(db, partner_id)
+        audit(db, "partner_password_changed", db.get(Partner, partner_id).account_id)
+        db.commit()
+        return True
+
 class NotificationService:
     def __init__(self, settings: Settings, cipher: FieldCipher):
         self.settings, self.cipher = settings, cipher
 
     def eligible_contacts(self, db: Session, person: TrustedPerson) -> list[ContactMethod]:
-        excluded_owner_type = person.owner_type
-        excluded_owner_id = person.owner_id
         active_partner_ids = select(Partner.id).where(
-            Partner.account_id == person.account_id, Partner.is_active.is_(True)
+            Partner.account_id == person.account_id,
+            Partner.is_active.is_(True),
+            Partner.id.in_(select(PartnerCredential.partner_id).where(
+                PartnerCredential.enrolled_at.is_not(None),
+                PartnerCredential.password_hash.is_not(None),
+            )),
         )
         return list(db.scalars(select(ContactMethod).where(
             ContactMethod.account_id == person.account_id,
@@ -388,12 +538,10 @@ class NotificationService:
                 and_(
                     ContactMethod.owner_type == "account",
                     ContactMethod.owner_id == person.account_id,
-                    or_(excluded_owner_type != "account", ContactMethod.owner_id != excluded_owner_id),
                 ),
                 and_(
                     ContactMethod.owner_type == "partner",
                     ContactMethod.owner_id.in_(active_partner_ids),
-                    or_(excluded_owner_type != "partner", ContactMethod.owner_id != excluded_owner_id),
                 ),
             ),
         )))
@@ -433,9 +581,7 @@ class NotificationService:
         access = self.resolve_access(db, token)
         if not access:
             return None
-        person, record = access
-        if not self.eligible_contacts(db, person):
-            return None
+        person, _ = access
         return person
 
     @staticmethod
@@ -476,19 +622,16 @@ class NotificationService:
             account_id=account.id, trusted_person_id=person.id, status=NotificationStatus.queued,
             message_digest=digest, encrypted_message_payload=self.cipher.encrypt(message),
             release_at=release_at,
-            expires_at=release_at + timedelta(hours=config.message_retention_hours),
+            expires_at=release_at + timedelta(days=config.message_retention_days),
             deduplication_key=submission.id_hash,
         )
         db.add(notification)
         db.flush()
-        contacts = self.eligible_contacts(db, person)
-        if not contacts:
-            raise LookupError
-        for contact in contacts:
-            db.add(Delivery(notification_id=notification.id, contact_method_id=contact.id, provider=contact.channel))
         submission.consumed_at = now
-        audit(db, "notification_accepted", account.id, count=len(contacts))
+        audit(db, "notification_accepted", account.id)
         db.commit()
+        if release_at <= utc_now():
+            DeliveryService._freeze_recipients(db, utc_now())
         return notification
 
     @staticmethod
@@ -545,6 +688,7 @@ class DeliveryService:
 
     def process_due(self, db: Session, now: datetime | None = None) -> int:
         now = now or utc_now()
+        self._freeze_recipients(db, now)
         released_notifications = select(Notification.id).where(
             Notification.release_at <= now,
             Notification.cancelled_at.is_(None),
@@ -636,7 +780,6 @@ class DeliveryService:
                         email_body(
                             language,
                             "email.notification_body",
-                            message=self.cipher.decrypt(notification.encrypted_message_payload),
                         ),
                         contact_method_id=contact.id,
                         delivery_id=delivery.id,
@@ -667,16 +810,13 @@ class DeliveryService:
     def _authorized_delivery(
         db: Session, delivery: Delivery, now: datetime
     ) -> tuple[ContactMethod | None, Notification | None, str | None]:
-        notification = db.get(
-            Notification, delivery.notification_id, with_for_update=True
-        )
+        notification = db.get(Notification, delivery.notification_id, with_for_update=True)
         if not notification:
             return None, None, "notification_missing"
         if notification.expires_at and notification.expires_at <= now:
             return None, notification, "notification_expired"
         if not notification.encrypted_message_payload:
             return None, notification, "notification_payload_missing"
-
         account = db.get(Account, notification.account_id, with_for_update=True)
         if not account:
             return None, notification, "account_missing"
@@ -684,12 +824,7 @@ class DeliveryService:
             return None, notification, "account_locked"
         if account.status not in {AccountStatus.active, AccountStatus.overdue}:
             return None, notification, "account_not_eligible"
-
-        contact = (
-            db.get(ContactMethod, delivery.contact_method_id, with_for_update=True)
-            if delivery.contact_method_id
-            else None
-        )
+        contact = db.get(ContactMethod, delivery.contact_method_id, with_for_update=True) if delivery.contact_method_id else None
         if not contact:
             return None, notification, "contact_missing"
         if contact.account_id != notification.account_id:
@@ -711,8 +846,166 @@ class DeliveryService:
                 return contact, notification, "partner_inactive"
         else:
             return contact, notification, "contact_owner_invalid"
+        if not db.scalar(select(NotificationRecipient.id).where(
+            NotificationRecipient.notification_id == notification.id,
+            NotificationRecipient.owner_type == contact.owner_type,
+            NotificationRecipient.owner_id == contact.owner_id,
+        )):
+            return contact, notification, "recipient_not_fixed"
         return contact, notification, None
 
+    @staticmethod
+    def _freeze_recipients(db: Session, now: datetime) -> None:
+        notification_ids = list(db.scalars(select(Notification.id).where(
+            Notification.release_at <= now,
+            Notification.cancelled_at.is_(None),
+            Notification.encrypted_message_payload.is_not(None),
+            Notification.expires_at > now,
+            Notification.recipients_frozen_at.is_(None),
+        )))
+        for notification_id in notification_ids:
+            claimed = db.execute(update(Notification).where(
+                Notification.id == notification_id,
+                Notification.release_at <= now,
+                Notification.cancelled_at.is_(None),
+                Notification.encrypted_message_payload.is_not(None),
+                Notification.recipients_frozen_at.is_(None),
+            ).values(status=NotificationStatus.queued, recipients_frozen_at=now))
+            if claimed.rowcount != 1:
+                db.rollback()
+                continue
+            db.flush()
+            notification = db.get(Notification, notification_id)
+            if not notification:
+                continue
+            contacts = list(db.scalars(select(ContactMethod).where(
+                ContactMethod.account_id == notification.account_id,
+                ContactMethod.is_verified.is_(True),
+                ContactMethod.is_active.is_(True),
+            )))
+            partner_ids = {
+                partner_id for partner_id in db.scalars(select(Partner.id).where(
+                    Partner.account_id == notification.account_id,
+                    Partner.is_active.is_(True),
+                    Partner.id.in_(select(PartnerCredential.partner_id).where(
+                        PartnerCredential.enrolled_at.is_not(None),
+                        PartnerCredential.password_hash.is_not(None),
+                    )),
+                ))
+            }
+            recipients = {("account", notification.account_id)} | {
+                ("partner", partner_id) for partner_id in partner_ids
+            }
+            for owner_type, owner_id in recipients:
+                db.add(NotificationRecipient(
+                    notification_id=notification.id,
+                    owner_type=owner_type,
+                    owner_id=owner_id,
+                ))
+            for contact in contacts:
+                if (contact.owner_type, contact.owner_id) in recipients:
+                    db.add(Delivery(
+                        notification_id=notification.id,
+                        contact_method_id=contact.id,
+                        provider=contact.channel,
+                    ))
+            db.commit()
+
+
+class InboxService:
+    def __init__(self, cipher: FieldCipher):
+        self.cipher = cipher
+
+    @staticmethod
+    def recipient(
+        db: Session, notification_id: str, owner_type: str, owner_id: str
+    ) -> NotificationRecipient | None:
+        recipient = db.scalar(select(NotificationRecipient).where(
+            NotificationRecipient.notification_id == notification_id,
+            NotificationRecipient.owner_type == owner_type,
+            NotificationRecipient.owner_id == owner_id,
+        ))
+        if not recipient:
+            return None
+        notification = db.get(Notification, notification_id)
+        if not notification or not notification.encrypted_message_payload or notification.expires_at <= utc_now():
+            return None
+        if owner_type == "account":
+            account = db.get(Account, owner_id)
+            return recipient if account and account.id == notification.account_id and account.status in {AccountStatus.active, AccountStatus.overdue} and not account.is_admin_locked else None
+        if owner_type == "partner":
+            partner = db.get(Partner, owner_id)
+            credential = db.get(PartnerCredential, owner_id)
+            return recipient if partner and partner.account_id == notification.account_id and partner.is_active and credential and credential.enrolled_at and credential.password_hash else None
+        return None
+
+    def messages(self, db: Session, owner_type: str, owner_id: str) -> list[tuple[NotificationRecipient, Notification]]:
+        rows = list(db.execute(select(NotificationRecipient, Notification).join(
+            Notification, Notification.id == NotificationRecipient.notification_id
+        ).where(
+            NotificationRecipient.owner_type == owner_type,
+            NotificationRecipient.owner_id == owner_id,
+            Notification.encrypted_message_payload.is_not(None),
+            Notification.expires_at > utc_now(),
+        ).order_by(Notification.release_at.desc())))
+        return [(recipient, notification) for recipient, notification in rows if self.recipient(db, notification.id, owner_type, owner_id)]
+
+    def confirm_read(self, db: Session, notification_id: str, owner_type: str, owner_id: str) -> bool:
+        existing = db.scalar(select(NotificationRecipient).where(
+            NotificationRecipient.notification_id == notification_id,
+            NotificationRecipient.owner_type == owner_type,
+            NotificationRecipient.owner_id == owner_id,
+        ))
+        if existing and existing.read_at is not None:
+            if owner_type == "account":
+                account = db.get(Account, owner_id)
+                return bool(account and account.status in {AccountStatus.active, AccountStatus.overdue} and not account.is_admin_locked)
+            partner = db.get(Partner, owner_id) if owner_type == "partner" else None
+            return bool(partner and partner.is_active)
+        if not self.recipient(db, notification_id, owner_type, owner_id):
+            db.rollback()
+            db.refresh(existing)
+            return existing.read_at is not None
+        now = utc_now()
+        result = db.execute(update(NotificationRecipient).where(
+            NotificationRecipient.notification_id == notification_id,
+            NotificationRecipient.owner_type == owner_type,
+            NotificationRecipient.owner_id == owner_id,
+            NotificationRecipient.read_at.is_(None),
+        ).values(read_at=now))
+        db.commit()
+        if result.rowcount not in {0, 1}:
+            return False
+        self.erase_if_complete(db, notification_id, now)
+        return True
+
+    @staticmethod
+    def erase_if_complete(db: Session, notification_id: str, now: datetime) -> None:
+        notification = db.get(Notification, notification_id)
+        if not notification or not notification.encrypted_message_payload:
+            return
+        blocking = 0
+        recipients = list(db.scalars(select(NotificationRecipient).where(
+            NotificationRecipient.notification_id == notification_id,
+        )))
+        if not recipients:
+            return
+        for recipient in recipients:
+            if recipient.read_at is not None:
+                continue
+            if recipient.owner_type == "account":
+                account = db.get(Account, recipient.owner_id)
+                blocking += int(bool(account and account.status in {AccountStatus.active, AccountStatus.overdue} and not account.is_admin_locked))
+            elif recipient.owner_type == "partner":
+                partner = db.get(Partner, recipient.owner_id)
+                blocking += int(bool(partner and partner.is_active))
+        if blocking == 0:
+            db.execute(update(Notification).where(
+                Notification.id == notification_id,
+                Notification.encrypted_message_payload.is_not(None),
+            ).values(encrypted_message_payload=None, expires_at=now))
+            audit(db, "notification_content_erased", notification.account_id)
+            db.commit()
 
 class LifecycleService:
     def __init__(self, settings: Settings):
@@ -759,6 +1052,11 @@ class LifecycleService:
         ))):
             db.delete(account)
         db.execute(delete(Submission).where(Submission.expires_at <= now))
+        for notification_id in db.scalars(select(Notification.id).where(
+            Notification.encrypted_message_payload.is_not(None),
+            Notification.release_at <= now,
+        )):
+            InboxService.erase_if_complete(db, notification_id, now)
         expired_notifications = list(db.scalars(select(Notification).where(
             Notification.encrypted_message_payload.is_not(None),
             Notification.expires_at.is_not(None),

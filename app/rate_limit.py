@@ -74,6 +74,13 @@ def policy_for_path(path: str, settings: Settings) -> tuple[RateLimitPolicy, str
             settings.rate_limit_login_attempts * 2,
             settings.rate_limit_login_attempts * 100,
         ), parts[1]
+    if len(parts) == 4 and parts[:2] == ["partner", "access"] and parts[3] in {"setup", "login"}:
+        return RateLimitPolicy(
+            f"partner_{parts[3]}", settings.rate_limit_login_window_seconds,
+            settings.rate_limit_login_attempts,
+            settings.rate_limit_login_attempts * 2,
+            settings.rate_limit_login_attempts * 100,
+        ), parts[2]
     if len(parts) in {2, 3} and parts[0] == "notify":
         return RateLimitPolicy(
             "notification_submission", settings.rate_limit_notification_window_seconds,

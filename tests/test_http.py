@@ -133,7 +133,10 @@ def test_public_html_pages_render():
     assert "Vor der PIN-Einrichtung" in help_page.text
     assert "E-Mail-Anbieter und die empfangenden Mailserver" in help_page.text
     assert "standardmäßig zehn Minuten" in help_page.text
-    assert "noch nicht versendet wurde" in help_page.text
+    assert "noch nicht freigegeben wurde" in help_page.text
+    assert "Kontoinhaber und alle aktiven Partner mit eingerichtetem Zugang" in help_page.text
+    assert "Bestätigte Kontaktwege erhalten zusätzlich einen neutralen E-Mail-Hinweis" in help_page.text
+    assert "Alex wird nicht benachrichtigt" not in help_page.text
     assert create.status_code == 200
     assert 'name="csrf"' in create.text
     assert admin.status_code == 200
@@ -154,7 +157,10 @@ def test_browser_language_controls_public_and_admin_pages():
     assert "Before the PIN is set up" in help_page.text
     assert "does not provide legal recognition" in help_page.text
     assert "ten minutes by default" in help_page.text
-    assert "it has not been sent yet" in help_page.text
+    assert "it has not been released yet" in help_page.text
+    assert "account holder and every active partner with completed access setup" in help_page.text
+    assert "Verified contact methods additionally receive a neutral email notice" in help_page.text
+    assert "Alex is not notified" not in help_page.text
     assert "Account language" in create.text
     assert "Admin sign-in" in admin_login.text
 
@@ -267,12 +273,25 @@ def test_owner_credential_change_revokes_all_browser_sessions(credential_change)
 
         csrf = hidden_value(first.get("/account/dashboard").text, "csrf")
         if credential_change == "password":
+            mismatch = first.post(
+                "/account/password/change",
+                data={
+                    "csrf": csrf,
+                    "current_password": "correct horse battery staple",
+                    "new_password": "new correct horse battery staple",
+                    "new_password_confirm": "different correct horse battery staple",
+                },
+                follow_redirects=False,
+            )
+            assert mismatch.status_code == 400
+            assert second.get("/account/dashboard").status_code == 200
             changed = first.post(
                 "/account/password/change",
                 data={
                     "csrf": csrf,
                     "current_password": "correct horse battery staple",
                     "new_password": "new correct horse battery staple",
+                    "new_password_confirm": "new correct horse battery staple",
                 },
                 follow_redirects=False,
             )
@@ -361,7 +380,9 @@ def test_production_setup_rejection_does_not_expose_verification_link(monkeypatc
                 setup_url.removeprefix("http://testserver"),
                 data={
                     "csrf": hidden_value(setup_form.text, "csrf"),
+                    "owner_name": "Erika Beispiel",
                     "password": "correct horse battery staple",
+                    "password_confirm": "correct horse battery staple",
                     "email": "missing@example.org",
                 },
             )
@@ -611,6 +632,7 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         assert 'data-copy-target="account-owner-link"' in created.text
         assert 'aria-label="Kontoinhaber-Link kopieren"' in created.text
         assert "/static/print.js" in created.text
+        assert 'class="print-only print-access-sheet"' in created.text
         setup_url = html.unescape(re.search(r'href="(http://testserver/account/setup/[^"]+)"', created.text).group(1))
         account_owner_url = html.unescape(
             re.search(
@@ -621,9 +643,20 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
 
         setup_path = setup_url.removeprefix("http://testserver")
         setup_form = client.get(setup_path)
+        mismatch = client.post(setup_path, data={
+            "csrf": hidden_value(setup_form.text, "csrf"),
+            "owner_name": "Erika Beispiel",
+            "password": "correct horse battery staple",
+            "password_confirm": "different correct horse battery staple",
+            "email": "owner@example.org",
+        })
+        assert mismatch.status_code == 400
+        assert "Passwörter stimmen nicht überein" in mismatch.text
         setup_done = client.post(setup_path, data={
             "csrf": hidden_value(setup_form.text, "csrf"),
+            "owner_name": "Erika Beispiel",
             "password": "correct horse battery staple",
+            "password_confirm": "correct horse battery staple",
             "email": "owner@example.org",
         })
         assert setup_done.status_code == 200
@@ -648,18 +681,56 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         )
         assert login.status_code == 200
         assert "Kontoverwaltung" in login.text
+        assert login.text.count('id="account-owner-name"') == 1
+        assert login.text.index("Name des Kontoinhabers") < login.text.index("Kontaktwege des Kontoinhabers")
+        assert login.text.index("Kontaktwege des Kontoinhabers") < login.text.index("<h2>Konto und Sicherheit</h2>")
         assert "Neuen Kontoinhaber-Zugang erstellen" in login.text
         assert "sr_account_owner" in client.cookies
         assert "sr_admin" not in client.cookies
         csrf = hidden_value(login.text, "csrf")
 
         partner_response = client.post(
-            "/account/partners", data={"csrf": csrf, "name": "Ausgeschlossener Partner"},
+            "/account/partners", data={"csrf": csrf, "name": "Erster Partner"},
             follow_redirects=True,
         )
         assert partner_response.status_code == 200
-        assert "partner-card" in partner_response.text
-        assert "Weiteren Partner hinzufügen" in partner_response.text
+        assert "Persönlicher Partnerzugang" in partner_response.text
+        assert "Der Zugang wird nur einmal angezeigt" in partner_response.text
+        assert "So geht es weiter" in partner_response.text
+        assert 'class="print-only print-access-sheet"' in partner_response.text
+        assert "innerhalb von 14 Tagen Ihr Passwort" in partner_response.text
+        partner_access_url = html.unescape(re.search(
+            r'<p class="secret" id="personal-access-link">(http://testserver/partner/access/[^<]+)</p>',
+            partner_response.text,
+        ).group(1))
+        partner_access_path = partner_access_url.removeprefix("http://testserver")
+        partner_setup_form = client.get(partner_access_path)
+        partner_setup = client.post(
+            f"{partner_access_path}/setup",
+            data={
+                "csrf": hidden_value(partner_setup_form.text, "csrf"),
+                "password": "partner correct horse battery staple",
+                "password_confirm": "partner correct horse battery staple",
+            },
+            follow_redirects=True,
+        )
+        assert "Vertrauliche Nachrichten" in partner_setup.text
+        partner_password_mismatch = client.post(
+            "/partner/password/change",
+            data={
+                "csrf": hidden_value(partner_setup.text, "csrf"),
+                "current_password": "partner correct horse battery staple",
+                "new_password": "new partner correct horse battery staple",
+                "new_password_confirm": "different partner correct horse battery staple",
+            },
+        )
+        assert partner_password_mismatch.status_code == 400
+        assert client.get("/partner/inbox").status_code == 200
+        dashboard = client.get("/account/dashboard")
+        assert "partner-card" in dashboard.text
+        assert "Weiteren Partner hinzufügen" in dashboard.text
+        assert 'class="inbox-cta"' not in dashboard.text
+        assert '>Nachrichteneingang</a>' in dashboard.text
         with Session(engine) as db:
             partner_id = db.scalar(select(Partner.id))
         partner_contact = client.post(
@@ -693,11 +764,14 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
             data={"csrf": csrf, "name": "Vertrauensperson"},
         )
         assert token_page.status_code == 200
-        assert "QR-Code drucken" in token_page.text
+        assert "Zugangsblatt drucken" in token_page.text
         assert 'data-copy-target="personal-access-link"' in token_page.text
         assert 'aria-label="Persönlichen Zugangslink kopieren"' in token_page.text
         assert "/static/print.js" in token_page.text
         assert "So geht es weiter" in token_page.text
+        assert "Der Zugang wird nur einmal angezeigt" in token_page.text
+        assert 'class="print-only print-access-sheet"' in token_page.text
+        assert "innerhalb von 14 Tagen Ihre PIN" in token_page.text
         dashboard = client.get("/account/dashboard")
         with Session(engine) as db:
             trusted_person_ids = list(db.scalars(select(TrustedPerson.id)))
@@ -873,7 +947,7 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
                 "account_review_grace_days": "45",
                 "contact_problem_reminder_days": "5",
                 "account_retention_after_disable_days": "300",
-                "message_retention_hours": "72",
+                "message_retention_days": "21",
                 "audit_retention_days": "60",
             },
             follow_redirects=True,
@@ -949,7 +1023,7 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
         assert config.account_creation_enabled is False
         assert config.account_review_interval_days == 120
         assert config.account_review_reminder_days == "-3,0,30"
-        assert config.message_retention_hours == 72
+        assert config.message_retention_days == 21
 
 
 def test_admin_can_publish_escaped_operator_information():

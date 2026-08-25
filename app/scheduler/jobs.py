@@ -10,7 +10,7 @@ from app.email_tracking import NdrMailboxProcessor, send_tracked_email
 from app.i18n import email_body, format_date, translate
 from app.models import (
     Account, AccountReview, ContactMethod, ContactReview, ContactReviewToken,
-    Partner, ReviewReminder, TrustedPerson, TrustedPersonToken,
+    Partner, PartnerCredential, ReviewReminder, TrustedPerson, TrustedPersonToken,
 )
 from app.rate_limit import purge_expired_rate_limits
 from app.security.core import FieldCipher, SessionManager, generate_token, keyed_hash
@@ -131,6 +131,9 @@ def run_jobs(settings: Settings) -> dict[str, int]:
         trusted_access_notices = _send_trusted_access_notices(
             db, settings, cipher, provider, now
         )
+        partner_access_notices = _send_partner_access_notices(
+            db, settings, cipher, provider, now
+        )
         LifecycleService(settings).run(db, now)
         sessions = SessionManager(settings).purge_expired(db)
         rate_limit_buckets = purge_expired_rate_limits(db, now)
@@ -141,6 +144,7 @@ def run_jobs(settings: Settings) -> dict[str, int]:
         "reminders": reminders,
         "contact_problem_reminders": contact_problem_reminders,
         "trusted_access_notices": trusted_access_notices,
+        "partner_access_notices": partner_access_notices,
         "sessions": sessions,
         "rate_limit_buckets": rate_limit_buckets,
     }
@@ -304,6 +308,45 @@ def _send_trusted_access_notices(
             handled = handled or result.successful or result.permanent_failure
         if handled:
             if setup_complete:
+                record.setup_notified_at = now
+            else:
+                record.expiry_notified_at = now
+            sent += 1
+        db.commit()
+    return sent
+
+
+def _send_partner_access_notices(
+    db, settings: Settings, cipher: FieldCipher, provider, now: datetime
+) -> int:
+    records = list(db.scalars(select(PartnerCredential).where(or_(
+        PartnerCredential.enrolled_at.is_not(None) & PartnerCredential.setup_notified_at.is_(None),
+        PartnerCredential.enrolled_at.is_(None) & PartnerCredential.expiry_notified_at.is_(None) & (PartnerCredential.enrollment_expires_at <= now),
+    ))))
+    sent = 0
+    for record in records:
+        partner = db.get(Partner, record.partner_id)
+        account = db.get(Account, partner.account_id) if partner else None
+        if not partner or not account:
+            continue
+        contacts = list(db.scalars(select(ContactMethod).where(
+            ContactMethod.account_id == account.id,
+            ContactMethod.owner_type == "account",
+            ContactMethod.is_active.is_(True),
+            ContactMethod.is_verified.is_(True),
+        )))
+        complete = record.enrolled_at is not None
+        handled = False
+        for contact in contacts:
+            result = send_tracked_email(
+                db, settings, cipher, provider, cipher.decrypt(contact.encrypted_value),
+                translate(account.language_code, "email.partner_setup_subject" if complete else "email.partner_expired_subject"),
+                email_body(account.language_code, "email.partner_setup_body" if complete else "email.partner_expired_body", url=settings.app_base_url),
+                contact_method_id=contact.id,
+            )
+            handled = handled or result.successful or result.permanent_failure
+        if handled:
+            if complete:
                 record.setup_notified_at = now
             else:
                 record.expiry_notified_at = now

@@ -53,6 +53,9 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
             row[1]
             for row in connection.execute("PRAGMA table_info(server_sessions)")
         }
+        partner_credential_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(partner_credentials)")
+        }
         notification_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(notifications)")
         }
@@ -63,6 +66,7 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert "public_site_contents" in tables
     assert "email_delivery_tracking" in tables
     assert "language_code" in account_columns
+    assert "encrypted_owner_name" in account_columns
     assert "permanent_failure_count" in contact_columns
     assert "contact_reviews" in tables
     assert "contact_review_tokens" in tables
@@ -74,14 +78,20 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert "pin_hash" in trusted_token_columns
     assert "enrollment_expires_at" in trusted_token_columns
     assert "trusted_person_id" in session_columns
+    assert "partner_id" in session_columns
+    assert "partner_credentials" in tables
+    assert "notification_recipients" in tables
+    assert {"token_hash", "password_hash", "enrollment_expires_at"} <= partner_credential_columns
     assert "system_configurations" in tables
     assert "release_at" in notification_columns
     assert "cancelled_at" in notification_columns
+    assert "recipients_frozen_at" in notification_columns
     assert system_configuration_columns["notification_delay_minutes"] == "'10'"
     assert system_configuration_columns["account_creation_enabled"] == "1"
     assert system_configuration_columns["account_review_interval_days"] == "'180'"
-    assert system_configuration_columns["message_retention_hours"] == "'48'"
-    assert revision == "0010"
+    assert "message_retention_hours" not in system_configuration_columns
+    assert system_configuration_columns["message_retention_days"] == "'30'"
+    assert revision == "0011"
 
 
 def test_published_0009_database_receives_operational_configuration(
@@ -126,15 +136,65 @@ def test_published_0009_database_receives_operational_configuration(
         }
         stored = connection.execute(
             "SELECT notification_delay_minutes, account_creation_enabled, "
-            "account_review_interval_days, message_retention_hours "
+            "account_review_interval_days, message_retention_days "
             "FROM system_configurations WHERE id = 'default'"
         ).fetchone()
         revision = connection.execute(
             "SELECT version_num FROM alembic_version"
         ).fetchone()[0]
-    assert set(operational_columns) <= columns.keys()
-    assert stored == (75, 1, 180, 48)
-    assert revision == "0010"
+    assert set(operational_columns) - {"message_retention_hours"} <= columns.keys()
+    assert "message_retention_hours" not in columns
+    assert "message_retention_days" in columns
+    assert stored == (75, 1, 180, 30)
+    assert revision == "0011"
+
+
+def test_previous_alembic_head_upgrades_to_protected_inbox_schema(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "previous-head.db"
+    _upgrade(database_path, "0010", monkeypatch)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO accounts
+                (id, status, created_at, updated_at, is_admin_locked, version,
+                 last_contact_problem_reminder_at, language_code)
+            VALUES
+                ('migrated-account', 'active', '2026-08-01 12:00:00',
+                 '2026-08-01 12:00:00', 0, 1, NULL, 'de')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO partners
+                (id, account_id, encrypted_name, is_active, created_at, updated_at)
+            VALUES
+                ('migrated-partner', 'migrated-account', X'00', 1,
+                 '2026-08-01 12:00:00', '2026-08-01 12:00:00')
+            """
+        )
+        connection.commit()
+    _upgrade(database_path, "head", monkeypatch)
+    with sqlite3.connect(database_path) as connection:
+        revision = connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone()[0]
+        tables = {
+            row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        migrated_partner = connection.execute(
+            "SELECT account_id, is_active FROM partners WHERE id = 'migrated-partner'"
+        ).fetchone()
+        migrated_credential = connection.execute(
+            "SELECT partner_id FROM partner_credentials WHERE partner_id = 'migrated-partner'"
+        ).fetchone()
+    assert revision == "0011"
+    assert {"partner_credentials", "notification_recipients"} <= tables
+    assert migrated_partner == ("migrated-account", 1)
+    assert migrated_credential is None
 
 
 def test_existing_database_upgrades_without_losing_data(tmp_path, monkeypatch):

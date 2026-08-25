@@ -16,7 +16,7 @@ DEFAULTS = {
     "account_review_grace_days": 60,
     "contact_problem_reminder_days": 7,
     "account_retention_after_disable_days": 365,
-    "message_retention_hours": 48,
+    "message_retention_days": 30,
     "audit_retention_days": 90,
 }
 
@@ -64,7 +64,7 @@ def save_retention_settings(
     account_review_grace_days: int,
     contact_problem_reminder_days: int,
     account_retention_after_disable_days: int,
-    message_retention_hours: int,
+    message_retention_days: int,
     audit_retention_days: int,
 ) -> SystemConfiguration:
     try:
@@ -83,7 +83,7 @@ def save_retention_settings(
         or account_review_grace_days < 0
         or contact_problem_reminder_days < 1
         or account_retention_after_disable_days < 0
-        or message_retention_hours < 1
+        or not 1 <= message_retention_days <= 30
         or audit_retention_days < 1
     ):
         raise ValueError
@@ -94,6 +94,6 @@ def save_retention_settings(
     stored.account_review_grace_days = account_review_grace_days
     stored.contact_problem_reminder_days = contact_problem_reminder_days
     stored.account_retention_after_disable_days = account_retention_after_disable_days
-    stored.message_retention_hours = message_retention_hours
+    stored.message_retention_days = message_retention_days
     stored.audit_retention_days = audit_retention_days
     return stored

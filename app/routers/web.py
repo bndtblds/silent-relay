@@ -29,7 +29,8 @@ from app.i18n import (
 )
 from app.models import (
     Account, AccountOwnerCredential, AccountReview, AccountStatus, ContactMethod,
-    ContactReview, Partner, ServerSession, TrustedPerson, TrustedPersonToken,
+    ContactReview, Partner, PartnerCredential, ServerSession,
+    TrustedPerson, TrustedPersonToken,
 )
 from app.providers.email import EmailNotificationProvider
 from app.public_markdown import render_public_markdown
@@ -38,7 +39,10 @@ from app.security.core import (
     FieldCipher, SessionManager, generate_token, hash_pin,
     keyed_hash, verify_password, verify_pin,
 )
-from app.services import AccountService, AuthenticationService, DeliveryService, ManagementService, NotificationService
+from app.services import (
+    AccountService, AuthenticationService, DeliveryService, InboxService,
+    ManagementService, NotificationService, PartnerAuthenticationService,
+)
 from app.smtp_config import load_email_provider
 from app.system_config import notification_delay_minutes, system_configuration
 from app.time import utc_now
@@ -128,6 +132,52 @@ def trusted_csrf_guard(
     if not session or not SessionManager(settings).verify_csrf(session, csrf):
         raise HTTPException(403, translate("de", "error.csrf"))
     return session
+
+
+def partner_session(request: Request, db: Session, settings: Settings) -> tuple[ServerSession, Partner] | None:
+    session = SessionManager(settings).resolve(
+        db, request.cookies.get("sr_partner"), "partner"
+    )
+    partner = db.get(Partner, session.partner_id) if session and session.partner_id else None
+    if not session or not partner or not partner.is_active:
+        return None
+    credential = db.get(PartnerCredential, partner.id)
+    if not credential or not credential.enrolled_at or not credential.password_hash:
+        return None
+    return session, partner
+
+
+def set_partner_session_cookies(response, settings: Settings, raw_session: str, raw_csrf: str) -> None:
+    max_age = settings.session_ttl_minutes * 60
+    response.set_cookie("sr_partner", raw_session, secure=settings.secure_cookies, httponly=True, samesite="strict", max_age=max_age)
+    response.set_cookie("sr_partner_csrf", raw_csrf, secure=settings.secure_cookies, httponly=False, samesite="strict", max_age=max_age)
+
+
+def inbox_rows(db: Session, cipher: FieldCipher, language: str, owner_type: str, owner_id: str):
+    rows = []
+    for recipient, notification in InboxService(cipher).messages(db, owner_type, owner_id):
+        person = db.get(TrustedPerson, notification.trusted_person_id) if notification.trusted_person_id else None
+        if person and person.owner_type == "partner":
+            affected = db.get(Partner, person.owner_id)
+            affected_label = cipher.decrypt(affected.encrypted_name) if affected else translate(language, "inbox.partner")
+        else:
+            affected_account = db.get(Account, notification.account_id)
+            affected_label = (
+                cipher.decrypt(affected_account.encrypted_owner_name)
+                if affected_account and affected_account.encrypted_owner_name
+                else translate(language, "inbox.account_owner")
+            )
+        rows.append({
+            "id": notification.id,
+            "affected": affected_label,
+            "message": cipher.decrypt(notification.encrypted_message_payload),
+            "released_iso": notification.release_at.astimezone(
+                UTC
+            ).isoformat().replace("+00:00", "Z"),
+            "released": format_datetime(notification.release_at, language),
+            "read": recipient.read_at is not None,
+        })
+    return rows
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -286,7 +336,8 @@ def setup_form(token: str, request: Request, db: Session = Depends(get_db), sett
 
 @router.post("/account/setup/{token}", response_class=HTMLResponse)
 def setup_account(
-    token: str, request: Request, password: str = Form(...), email: str = Form(...), csrf: str = Form(...),
+    token: str, request: Request, owner_name: str = Form(...), password: str = Form(...),
+    password_confirm: str = Form(...), email: str = Form(...), csrf: str = Form(...),
     db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
 ):
     public_csrf_guard(request, db, settings, csrf)
@@ -294,10 +345,16 @@ def setup_account(
         AccountOwnerCredential.setup_token_hash == keyed_hash(token, settings.token_hmac_key)
     ))
     language = credential.account.language_code if credential else settings.default_language
+    if password != password_confirm:
+        return templates.TemplateResponse(
+            request, "setup.html",
+            context(request, language, token=token, csrf=csrf, error=translate(language, "error.password_mismatch")),
+            status_code=400,
+        )
     try:
         account, verification = AccountService(
             settings, FieldCipher(settings.field_encryption_key)
-        ).setup(db, token, password, email)
+        ).setup(db, token, password, email, owner_name=owner_name)
         language = account.language_code
     except (LookupError, ValueError) as exc:
         return templates.TemplateResponse(
@@ -432,7 +489,6 @@ def dashboard(
             TrustedPerson.account_id == account.id
         ))
     }
-    notification_service = NotificationService(settings, cipher)
     now = utc_now()
 
     def person_row(person: TrustedPerson) -> dict[str, object]:
@@ -454,7 +510,6 @@ def dashboard(
             ),
             "ready": (
                 person.is_active and enrolled
-                and bool(notification_service.eligible_contacts(db, person))
             ),
         }
     current_review = db.scalar(select(AccountReview).where(
@@ -495,6 +550,7 @@ def dashboard(
 
     partner_rows = []
     for partner in partners:
+        partner_credential = db.get(PartnerCredential, partner.id)
         people = list(db.scalars(select(TrustedPerson).where(
             TrustedPerson.account_id == account.id,
             TrustedPerson.owner_type == "partner",
@@ -503,7 +559,11 @@ def dashboard(
         partner_contacts = list(db.scalars(select(ContactMethod).where(
             ContactMethod.account_id == account.id, ContactMethod.owner_type == "partner", ContactMethod.owner_id == partner.id
         )))
-        partner_rows.append({"id": partner.id, "name": cipher.decrypt(partner.encrypted_name), "active": partner.is_active, "contacts": [
+        partner_rows.append({"id": partner.id, "name": cipher.decrypt(partner.encrypted_name), "active": partner.is_active,
+            "access_enrolled": bool(partner_credential and partner_credential.enrolled_at and partner_credential.password_hash),
+            "access_expired": bool(partner_credential and not partner_credential.enrolled_at and partner_credential.enrollment_expires_at <= now),
+            "access_deadline": format_date(partner_credential.enrollment_expires_at, account.language_code) if partner_credential and not partner_credential.enrolled_at else "",
+            "contacts": [
             contact_row(c) for c in partner_contacts
         ], "people": [person_row(p) for p in people]})
     failures = db.scalar(select(func.count()).select_from(ContactMethod).where(
@@ -515,6 +575,9 @@ def dashboard(
     verified_partner_contact_count = sum(
         sum(1 for contact in partner["contacts"] if contact["verified"]) for partner in partner_rows
     )
+    dashboard_messages = InboxService(cipher).messages(
+        db, "account", account.id
+    )
     return templates.TemplateResponse(
         request, "dashboard_en.html" if account.language_code == "en" else "dashboard.html",
         context(
@@ -524,10 +587,15 @@ def dashboard(
             if not account.next_review_due_at
             else format_date(account.next_review_due_at, account.language_code)
         ),
+        owner_name=(cipher.decrypt(account.encrypted_owner_name) if account.encrypted_owner_name else ""),
         contacts=[contact_row(c) for c in contacts],
         partners=partner_rows,
         owner_people=[person_row(person) for person in owner_people],
         failures=failures, csrf=request.cookies.get("sr_account_owner_csrf", ""),
+        inbox_available=bool(dashboard_messages),
+        inbox_unread=any(
+            recipient.read_at is None for recipient, _ in dashboard_messages
+        ),
         owner_contact_count=sum(1 for contact in contacts if contact.is_verified),
         review={
             "due": bool(
@@ -645,6 +713,23 @@ def add_contact(
     return RedirectResponse("/account/dashboard", 303)
 
 
+@router.post("/account/name")
+def change_account_owner_name(
+    request: Request, name: str = Form(...), csrf: str = Form(...),
+    account: Account = Depends(account_owner_account),
+    session: ServerSession = Depends(account_owner_session),
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+):
+    csrf_guard(request, session, settings, csrf)
+    try:
+        ManagementService(settings, FieldCipher(settings.field_encryption_key)).update_owner_name(
+            db, account, name
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return RedirectResponse("/account/dashboard", 303)
+
+
 @router.post("/account/contacts/{contact_id}/verify")
 def resend_contact_verification(
     contact_id: str, request: Request, csrf: str = Form(...), account: Account = Depends(account_owner_account),
@@ -711,8 +796,53 @@ def add_partner(
     session: ServerSession = Depends(account_owner_session), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
 ):
     csrf_guard(request, session, settings, csrf)
-    ManagementService(settings, FieldCipher(settings.field_encryption_key)).add_partner(db, account.id, name)
-    return RedirectResponse("/account/dashboard", 303)
+    _, token = ManagementService(settings, FieldCipher(settings.field_encryption_key)).add_partner_with_access(db, account.id, name)
+    url = f"{settings.app_base_url}/partner/access/{token}"
+    return templates.TemplateResponse(request, "token.html", context(
+        request, account.language_code, title=translate(account.language_code, "token.partner_title"),
+        url=url, qr=qr_data(url), partner_access=True,
+    ))
+
+
+@router.post("/account/partners/{partner_id}/rotate-access", response_class=HTMLResponse)
+def rotate_partner_access(
+    partner_id: str, request: Request, csrf: str = Form(...),
+    account: Account = Depends(account_owner_account), session: ServerSession = Depends(account_owner_session),
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+):
+    csrf_guard(request, session, settings, csrf)
+    token = ManagementService(settings, FieldCipher(settings.field_encryption_key)).rotate_partner_access(db, account.id, partner_id)
+    url = f"{settings.app_base_url}/partner/access/{token}"
+    return templates.TemplateResponse(request, "token.html", context(
+        request, account.language_code, title=translate(account.language_code, "token.partner_new_title"),
+        url=url, qr=qr_data(url), partner_access=True, recovery=True,
+    ))
+
+
+@router.get("/account/inbox", response_class=HTMLResponse)
+def account_inbox(
+    request: Request, account: Account = Depends(account_owner_account),
+    session: ServerSession = Depends(account_owner_session), db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    cipher = FieldCipher(settings.field_encryption_key)
+    return templates.TemplateResponse(request, "inbox.html", context(
+        request, account.language_code, messages=inbox_rows(db, cipher, account.language_code, "account", account.id),
+        csrf=request.cookies.get("sr_account_owner_csrf", ""), confirm_base="/account/inbox",
+        partner_view=False,
+    ))
+
+
+@router.post("/account/inbox/{notification_id}/read")
+def account_confirm_read(
+    notification_id: str, request: Request, csrf: str = Form(...),
+    account: Account = Depends(account_owner_account), session: ServerSession = Depends(account_owner_session),
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+):
+    csrf_guard(request, session, settings, csrf)
+    if not InboxService(FieldCipher(settings.field_encryption_key)).confirm_read(db, notification_id, "account", account.id):
+        raise HTTPException(404)
+    return RedirectResponse("/account/inbox", 303)
 
 
 @router.post("/account/partners/{partner_id}/edit")
@@ -727,6 +857,21 @@ def edit_partner(
         raise HTTPException(404)
     partner.encrypted_name = FieldCipher(settings.field_encryption_key).encrypt(name.strip())
     db.commit()
+    return RedirectResponse("/account/dashboard", 303)
+
+
+@router.post("/account/partners/{partner_id}/state/{action}")
+def set_partner_state(
+    partner_id: str, action: str, request: Request, csrf: str = Form(...),
+    account: Account = Depends(account_owner_account), session: ServerSession = Depends(account_owner_session),
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+):
+    if action not in {"disable", "enable"}:
+        raise HTTPException(404)
+    csrf_guard(request, session, settings, csrf)
+    ManagementService(settings, FieldCipher(settings.field_encryption_key)).set_partner_active(
+        db, account.id, partner_id, action == "enable"
+    )
     return RedirectResponse("/account/dashboard", 303)
 
 
@@ -748,6 +893,7 @@ def delete_partner(
     db.execute(delete(ContactMethod).where(
         ContactMethod.account_id == account.id, ContactMethod.owner_type == "partner", ContactMethod.owner_id == partner.id
     ))
+    db.execute(delete(ServerSession).where(ServerSession.partner_id == partner.id))
     db.delete(partner)
     db.flush()
     AccountService(
@@ -855,11 +1001,14 @@ def rotate_account_owner(
 
 @router.post("/account/password/change")
 def change_password(
-    request: Request, current_password: str = Form(...), new_password: str = Form(...), csrf: str = Form(...),
+    request: Request, current_password: str = Form(...), new_password: str = Form(...),
+    new_password_confirm: str = Form(...), csrf: str = Form(...),
     account: Account = Depends(account_owner_account), session: ServerSession = Depends(account_owner_session),
     db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
 ):
     csrf_guard(request, session, settings, csrf)
+    if new_password != new_password_confirm:
+        raise HTTPException(400, translate(account.language_code, "error.password_mismatch"))
     if not AuthenticationService(settings).change_password(
         db, account.id, current_password, new_password
     ):
@@ -892,6 +1041,154 @@ router.add_api_route("/account/{token}", account_owner_login_form, methods=["GET
 router.add_api_route("/account/{token}/login", account_owner_login, methods=["POST"])
 
 
+@router.get("/partner/access/{token}", response_class=HTMLResponse)
+def partner_access_form(
+    token: str, request: Request, db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    access = PartnerAuthenticationService(settings).resolve_access(db, token)
+    if not access:
+        raise HTTPException(404)
+    partner, credential = access
+    account = db.get(Account, partner.account_id)
+    if not credential.password_hash:
+        if credential.enrollment_expires_at <= utc_now():
+            return templates.TemplateResponse(request, "partner_access_expired.html", context(request, account.language_code), status_code=410)
+        return public_form_response(
+            request, db, settings, "partner_setup.html", language=account.language_code,
+            token=token, expires=format_date(credential.enrollment_expires_at, account.language_code),
+        )
+    return public_form_response(request, db, settings, "partner_login.html", language=account.language_code, token=token)
+
+
+@router.post("/partner/access/{token}/setup")
+def partner_setup(
+    token: str, request: Request, password: str = Form(...), password_confirm: str = Form(...),
+    csrf: str = Form(...), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+):
+    public_csrf_guard(request, db, settings, csrf)
+    service = PartnerAuthenticationService(settings)
+    access = service.resolve_access(db, token)
+    if not access:
+        raise HTTPException(404)
+    partner, credential = access
+    account = db.get(Account, partner.account_id)
+    if password != password_confirm:
+        error = translate(account.language_code, "partner.password_mismatch")
+    else:
+        try:
+            service.enroll(db, credential, password)
+            error = None
+        except ValueError as exc:
+            error = str(exc) if account.language_code == "de" else translate("en", "partner.password_invalid")
+        except LookupError:
+            return templates.TemplateResponse(request, "partner_access_expired.html", context(request, account.language_code), status_code=410)
+    if error:
+        return templates.TemplateResponse(request, "partner_setup.html", context(
+            request, account.language_code, token=token, csrf=csrf, expires=format_date(credential.enrollment_expires_at, account.language_code), error=error,
+        ), status_code=400)
+    raw_session, raw_csrf = SessionManager(settings).create(db, "partner", account.id, partner_id=partner.id)
+    db.commit()
+    response = RedirectResponse("/partner/inbox", 303)
+    set_partner_session_cookies(response, settings, raw_session, raw_csrf)
+    return response
+
+
+@router.post("/partner/access/{token}/login")
+def partner_login(
+    token: str, request: Request, password: str = Form(...), csrf: str = Form(...),
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+):
+    public_csrf_guard(request, db, settings, csrf)
+    service = PartnerAuthenticationService(settings)
+    access = service.resolve_access(db, token)
+    if not access:
+        raise HTTPException(404)
+    partner, credential = access
+    account = db.get(Account, partner.account_id)
+    if not service.login(db, credential, password):
+        return templates.TemplateResponse(request, "partner_login.html", context(
+            request, account.language_code, token=token, csrf=csrf, error=translate(account.language_code, "error.login"),
+        ), status_code=401)
+    raw_session, raw_csrf = SessionManager(settings).create(db, "partner", account.id, partner_id=partner.id)
+    db.commit()
+    response = RedirectResponse("/partner/inbox", 303)
+    set_partner_session_cookies(response, settings, raw_session, raw_csrf)
+    return response
+
+
+@router.get("/partner/inbox", response_class=HTMLResponse)
+def partner_inbox(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
+    resolved = partner_session(request, db, settings)
+    if not resolved:
+        return RedirectResponse("/", 303)
+    _, partner = resolved
+    account = db.get(Account, partner.account_id)
+    cipher = FieldCipher(settings.field_encryption_key)
+    return templates.TemplateResponse(request, "inbox.html", context(
+        request, account.language_code, messages=inbox_rows(db, cipher, account.language_code, "partner", partner.id),
+        csrf=request.cookies.get("sr_partner_csrf", ""), confirm_base="/partner/inbox",
+        partner_view=True,
+    ))
+
+
+@router.post("/partner/inbox/{notification_id}/read")
+def partner_confirm_read(
+    notification_id: str, request: Request, csrf: str = Form(...),
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+):
+    resolved = partner_session(request, db, settings)
+    if not resolved:
+        raise HTTPException(404)
+    session, partner = resolved
+    if not SessionManager(settings).verify_csrf(session, csrf):
+        raise HTTPException(403, translate("de", "error.csrf"))
+    if not InboxService(FieldCipher(settings.field_encryption_key)).confirm_read(db, notification_id, "partner", partner.id):
+        raise HTTPException(404)
+    return RedirectResponse("/partner/inbox", 303)
+
+
+@router.post("/partner/password/change")
+def partner_change_password(
+    request: Request, current_password: str = Form(...), new_password: str = Form(...),
+    new_password_confirm: str = Form(...), csrf: str = Form(...),
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+):
+    resolved = partner_session(request, db, settings)
+    if not resolved:
+        raise HTTPException(404)
+    session, partner = resolved
+    if not SessionManager(settings).verify_csrf(session, csrf):
+        raise HTTPException(403, translate("de", "error.csrf"))
+    account = db.get(Account, partner.account_id)
+    if new_password != new_password_confirm:
+        raise HTTPException(400, translate(account.language_code, "error.password_mismatch"))
+    try:
+        changed = PartnerAuthenticationService(settings).change_password(db, partner.id, current_password, new_password)
+    except ValueError:
+        raise HTTPException(400, translate(db.get(Account, partner.account_id).language_code, "partner.password_invalid"))
+    if not changed:
+        raise HTTPException(401, translate(db.get(Account, partner.account_id).language_code, "error.login"))
+    response = RedirectResponse("/", 303)
+    response.delete_cookie("sr_partner")
+    response.delete_cookie("sr_partner_csrf")
+    return response
+
+
+@router.post("/partner/logout")
+def partner_logout(
+    request: Request, csrf: str = Form(...), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+):
+    resolved = partner_session(request, db, settings)
+    if resolved and SessionManager(settings).verify_csrf(resolved[0], csrf):
+        SessionManager(settings).revoke(db, request.cookies.get("sr_partner"))
+        db.commit()
+    response = RedirectResponse("/", 303)
+    response.delete_cookie("sr_partner")
+    response.delete_cookie("sr_partner_csrf")
+    return response
+
+
 @router.get("/notify/{token}", response_class=HTMLResponse)
 def notify_form(token: str, request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
     cipher = FieldCipher(settings.field_encryption_key)
@@ -919,8 +1216,6 @@ def notify_form(token: str, request: Request, db: Session = Depends(get_db), set
             request, db, settings, "trusted_login.html",
             language=account.language_code, token=token,
         )
-    if not service.eligible_contacts(db, person):
-        raise HTTPException(404)
     pending = [
         {
             "id": notification.id,

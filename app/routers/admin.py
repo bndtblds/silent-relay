@@ -262,7 +262,7 @@ def update_retention_settings(
     account_review_grace_days: int = Form(...),
     contact_problem_reminder_days: int = Form(...),
     account_retention_after_disable_days: int = Form(...),
-    message_retention_hours: int = Form(...),
+    message_retention_days: int = Form(...),
     audit_retention_days: int = Form(...),
     csrf: str = Form(...),
     db: Session = Depends(get_db),
@@ -278,7 +278,7 @@ def update_retention_settings(
             account_review_grace_days=account_review_grace_days,
             contact_problem_reminder_days=contact_problem_reminder_days,
             account_retention_after_disable_days=account_retention_after_disable_days,
-            message_retention_hours=message_retention_hours,
+            message_retention_days=message_retention_days,
             audit_retention_days=audit_retention_days,
         )
     except ValueError:

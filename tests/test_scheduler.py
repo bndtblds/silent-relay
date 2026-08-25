@@ -11,6 +11,7 @@ from app.models import (
     Delivery,
     DeliveryStatus,
     NotificationStatus,
+    PartnerCredential,
     ReviewReminder,
     SystemConfiguration,
     TrustedPersonToken,
@@ -19,7 +20,7 @@ from app.model_base import Base
 from app.providers.base import DeliveryResult
 from app.scheduler import jobs
 from app.security.core import hash_pin
-from app.services import AccountService, DeliveryService, ManagementService, NotificationService
+from app.services import AccountService, DeliveryService, ManagementService, NotificationService, PartnerAuthenticationService
 from app.time import utc_now
 
 
@@ -80,6 +81,32 @@ def test_account_owner_is_notified_about_trusted_pin_setup_and_expiry(
         "SilentRelay: Zugang einer Vertrauensperson abgelaufen",
     ]
     assert all("472915" not in message[2] for message in RecordingProvider.messages)
+
+
+def test_account_owner_is_neutrally_notified_about_partner_setup(
+    db, settings, cipher, monkeypatch
+):
+    service = AccountService(settings, cipher)
+    account, _, setup = service.create(db)
+    _, verification = service.setup(
+        db, setup, "correct horse battery staple", "owner@example.org"
+    )
+    service.verify_contact(db, verification)
+    partner, _ = ManagementService(settings, cipher).add_partner_with_access(
+        db, account.id, "Private Partner Name"
+    )
+    PartnerAuthenticationService(settings).enroll(
+        db, db.get(PartnerCredential, partner.id), "partner secure password"
+    )
+    RecordingProvider.sent = []
+    RecordingProvider.messages = []
+    monkeypatch.setattr(jobs, "load_email_provider", lambda db, settings, cipher: RecordingProvider(settings))
+    monkeypatch.setattr(jobs, "SessionLocal", lambda: Session(db.get_bind(), expire_on_commit=False))
+    result = jobs.run_jobs(settings)
+    assert result["partner_access_notices"] == 1
+    body = next(message[2] for message in RecordingProvider.messages if "Partnerzugang eingerichtet" in message[1])
+    assert "Private Partner Name" not in body
+    assert "/partner/access/" not in body
 
 
 def test_review_reminder_is_not_sent_twice(db, settings, cipher, monkeypatch):

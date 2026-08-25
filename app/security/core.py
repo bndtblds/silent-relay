@@ -98,7 +98,7 @@ class SessionManager:
 
     def create(
         self, db: Session, kind: str, account_id: str | None = None,
-        trusted_person_id: str | None = None,
+        trusted_person_id: str | None = None, partner_id: str | None = None,
     ) -> tuple[str, str]:
         raw_id, raw_csrf = generate_token(), generate_token()
         db.add(ServerSession(
@@ -107,6 +107,7 @@ class SessionManager:
             kind=kind,
             account_id=account_id,
             trusted_person_id=trusted_person_id,
+            partner_id=partner_id,
             expires_at=utc_now() + timedelta(minutes=self.settings.session_ttl_minutes),
         ))
         db.flush()
@@ -135,6 +136,13 @@ class SessionManager:
         result = db.execute(delete(ServerSession).where(
             ServerSession.kind == "account_owner",
             ServerSession.account_id == account_id,
+        ))
+        return result.rowcount or 0
+
+    def revoke_partner_sessions(self, db: Session, partner_id: str) -> int:
+        result = db.execute(delete(ServerSession).where(
+            ServerSession.kind == "partner",
+            ServerSession.partner_id == partner_id,
         ))
         return result.rowcount or 0
 

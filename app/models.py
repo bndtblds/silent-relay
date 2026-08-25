@@ -45,6 +45,7 @@ class DeliveryStatus(str, enum.Enum):
 class Account(Base):
     __tablename__ = "accounts"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid7_str)
+    encrypted_owner_name: Mapped[bytes | None] = mapped_column(LargeBinary)
     status: Mapped[AccountStatus] = mapped_column(Enum(AccountStatus), default=AccountStatus.pending_verification)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
@@ -83,6 +84,22 @@ class Partner(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
+
+
+class PartnerCredential(Base):
+    __tablename__ = "partner_credentials"
+    partner_id: Mapped[str] = mapped_column(ForeignKey("partners.id", ondelete="CASCADE"), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(Text)
+    enrollment_expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    enrolled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    password_changed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    rotated_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    failed_login_count: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    setup_notified_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    expiry_notified_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
 
 
 class ContactMethod(Base):
@@ -154,9 +171,26 @@ class Notification(Base):
     message_digest: Mapped[str] = mapped_column(String(64))
     encrypted_message_payload: Mapped[bytes | None] = mapped_column(LargeBinary)
     release_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, index=True)
+    recipients_frozen_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     deduplication_key: Mapped[str] = mapped_column(String(64), unique=True)
+
+
+class NotificationRecipient(Base):
+    __tablename__ = "notification_recipients"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid7_str)
+    notification_id: Mapped[str] = mapped_column(
+        ForeignKey("notifications.id", ondelete="CASCADE"), index=True
+    )
+    owner_type: Mapped[str] = mapped_column(String(16))
+    owner_id: Mapped[str] = mapped_column(String(36), index=True)
+    read_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    __table_args__ = (
+        UniqueConstraint("notification_id", "owner_type", "owner_id"),
+        Index("ix_notification_recipient_lookup", "owner_type", "owner_id", "notification_id"),
+    )
 
 
 class Delivery(Base):
@@ -252,6 +286,9 @@ class ServerSession(Base):
     trusted_person_id: Mapped[str | None] = mapped_column(
         ForeignKey("trusted_persons.id", ondelete="CASCADE"), index=True
     )
+    partner_id: Mapped[str | None] = mapped_column(
+        String(36), index=True
+    )
     csrf_hash: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
@@ -307,7 +344,7 @@ class SystemConfiguration(Base):
     account_review_grace_days: Mapped[int] = mapped_column(Integer, default=60)
     contact_problem_reminder_days: Mapped[int] = mapped_column(Integer, default=7)
     account_retention_after_disable_days: Mapped[int] = mapped_column(Integer, default=365)
-    message_retention_hours: Mapped[int] = mapped_column(Integer, default=48)
+    message_retention_days: Mapped[int] = mapped_column(Integer, default=30)
     audit_retention_days: Mapped[int] = mapped_column(Integer, default=90)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
 

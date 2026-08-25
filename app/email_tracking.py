@@ -287,5 +287,3 @@ def update_notification_status(db: Session, notification_id: str) -> None:
         notification.status = NotificationStatus.failed
     else:
         notification.status = NotificationStatus.queued
-    if statuses and all(status in terminal for status in statuses):
-        notification.encrypted_message_payload = None

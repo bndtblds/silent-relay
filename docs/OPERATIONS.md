@@ -164,6 +164,65 @@ can therefore begin up to one configured scheduler interval after the displayed
 release time. Once a delivery has been claimed for processing, SilentRelay no
 longer promises that the message can be cancelled.
 
+At release time SilentRelay fixes one domain recipient record for the account
+holder and for each active partner whose personal access is fully set up. This
+inbox entitlement does not depend on a verified contact method. Each active,
+verified email address belonging to those recipients creates a separate neutral
+notice, while the person still has only one recipient record and one inbox read
+status. A recipient without a verified address receives no email notice but can
+still retrieve the message through the protected inbox. Notices contain no
+confidential text, name, role, relationship, recipient count, or secret link.
+
+With the required production HTTPS deployment, the confidential content is
+encrypted in transit between the recipient's browser and SilentRelay and the
+browser authenticates the configured SilentRelay origin through its TLS
+certificate. This is a narrower and more controllable path than sending the
+content by email. SMTP TLS is not end-to-end protection: it can be negotiated
+independently for individual hops, may be opportunistic, and does not control
+storage in receiving servers, forwarded mailboxes, mail clients, or backups.
+Operators must therefore keep HTTPS and HSTS enabled in production.
+
+The encrypted content is available only through the authenticated account-holder
+or partner inbox. Reading a page does not change state; each recipient must use
+the CSRF-protected confirmation button. Content is erased after all still-active
+original recipients confirm, and in every case no later than the configured
+retention period after release. The default and maximum are 30 days. Later
+partners never gain access to earlier messages.
+
+Email is an auxiliary attention mechanism, not the domain delivery boundary.
+A missing, pending, expired, or failed contact confirmation suppresses the
+corresponding email notice but does not remove an already activated person from
+the fixed inbox recipient set. Confirming an address later does not create a
+retroactive email notice for previously released messages.
+
+HTTPS protects transport, not the authenticated endpoint. SilentRelay cannot
+prevent a recipient or malware on their device from copying the displayed
+message, taking a screenshot, or otherwise disclosing it.
+
+### Personal partner access
+
+Creating or rotating a partner displays a secret link and QR code exactly once.
+The account holder must hand it over directly; SilentRelay never sends it by
+email. The partner chooses a password within 14 days. An expired setup cannot
+be completed, and the account holder must rotate the access. Setup completion
+and expiry produce neutral notices to verified account-holder addresses.
+
+After setup, both the secret access and the password are required. Partners can
+change their password in their inbox. Password changes and access rotation
+revoke all affected partner sessions; rotation also invalidates the former link
+and password. Existing messages remain available after the replacement access
+is set up if the partner was an original recipient and remains active.
+
+The account holder enters their name during initial setup. SilentRelay stores
+it encrypted and uses it as the person concerned only inside an authenticated,
+authorized inbox. Existing accounts upgraded from an older release are asked
+to add the missing name in the account dashboard. The name is never included
+in notification email or technical administration views.
+
+Initial account and partner setup and later password changes require the new
+password to be entered twice. SilentRelay compares both values on the server;
+on a mismatch it makes no credential or session change.
+
 ### Detect permanent email delivery failures
 
 This optional function requires the SMTP sender address to be its own technical

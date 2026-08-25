@@ -10,16 +10,31 @@ from sqlalchemy.orm import Session
 from app.models import (
     Account, AccountReview, AccountStatus, ContactMethod, ContactReview,
     ContactReviewToken, Delivery, DeliveryStatus, Notification,
-    NotificationStatus, Partner, ReviewReminder, ServerSession,
+    NotificationStatus, Partner, PartnerCredential, ReviewReminder, ServerSession,
     SystemConfiguration, TrustedPersonToken,
 )
 from app.providers.base import DeliveryResult
-from app.security.core import SessionManager, hash_pin, keyed_hash
+from app.security.core import SessionManager, hash_password, hash_pin, keyed_hash
 from app.services import (
     AccountService, AuthenticationService, DeliveryService, LifecycleService,
     ManagementService, NotificationService,
 )
 from app.time import utc_now
+
+
+_ManagementService = ManagementService
+
+
+class ManagementService(_ManagementService):
+    """Create activated partners for legacy delivery tests."""
+
+    def add_partner(self, db, account_id, name):
+        partner = super().add_partner(db, account_id, name)
+        credential = db.get(PartnerCredential, partner.id)
+        credential.password_hash = hash_password("partner test password")
+        credential.enrolled_at = utc_now()
+        db.commit()
+        return partner
 
 
 class SuccessfulProvider:
@@ -84,6 +99,21 @@ def test_account_creation_stores_no_clear_tokens(db, settings, cipher):
     assert uuid.UUID(account.id).version == 7
     assert "account_owner_credentials" in db.get_bind().dialect.get_table_names(db.connection())
     assert "admin_credentials" not in db.get_bind().dialect.get_table_names(db.connection())
+
+
+def test_account_setup_encrypts_owner_name(db, settings, cipher):
+    service = AccountService(settings, cipher)
+    account, _, setup_token = service.create(db)
+    service.setup(
+        db,
+        setup_token,
+        "correct horse battery staple",
+        "owner@example.org",
+        owner_name="Erika Beispiel",
+    )
+    db.refresh(account)
+    assert b"Erika Beispiel" not in account.encrypted_owner_name
+    assert cipher.decrypt(account.encrypted_owner_name) == "Erika Beispiel"
 
 
 def owner_account_with_token(db, settings, cipher, email="owner@example.org"):
@@ -169,7 +199,7 @@ def test_review_days_are_sorted_and_deduplicated(db, settings, cipher):
     assert account.status == AccountStatus.active
 
 
-def test_recipient_selection_excludes_origin_partner(db, settings, cipher):
+def test_recipient_selection_includes_assigned_partner(db, settings, cipher):
     account = active_account(db, settings, cipher)
     accounts = AccountService(settings, cipher)
     management = ManagementService(settings, cipher)
@@ -189,10 +219,10 @@ def test_recipient_selection_excludes_origin_partner(db, settings, cipher):
         .where(Delivery.notification_id == notification.id)
     ))
     values = {cipher.decrypt(contact.encrypted_value) for contact in contacts}
-    assert values == {"owner@example.org", "other@example.org"}
+    assert values == {"owner@example.org", "origin@example.org", "other@example.org"}
 
 
-def test_recipient_selection_excludes_account_owner_for_owner_trusted_person(db, settings, cipher):
+def test_recipient_selection_includes_account_owner_for_owner_trusted_person(db, settings, cipher):
     account = active_account(db, settings, cipher)
     accounts = AccountService(settings, cipher)
     management = ManagementService(settings, cipher)
@@ -214,16 +244,16 @@ def test_recipient_selection_excludes_account_owner_for_owner_trusted_person(db,
         .where(Delivery.notification_id == notification.id)
     ))
     values = {cipher.decrypt(contact.encrypted_value) for contact in contacts}
-    assert values == {"partner@example.org"}
+    assert values == {"owner@example.org", "partner@example.org"}
 
 
-def test_trusted_person_is_unavailable_without_another_recipient(db, settings, cipher):
+def test_account_owner_is_sufficient_recipient_for_own_trusted_person(db, settings, cipher):
     account = active_account(db, settings, cipher)
     management = ManagementService(settings, cipher)
     _, trusted_token = management.add_trusted_person(
         db, account.id, "account", account.id, "Trusted"
     )
-    assert NotificationService(settings, cipher).resolve_person(db, trusted_token) is None
+    assert NotificationService(settings, cipher).resolve_person(db, trusted_token) is not None
 
 
 def test_submission_is_one_time(db, settings, cipher):
@@ -277,7 +307,7 @@ def test_notification_waits_for_fixed_release_time_and_can_be_cancelled(
     assert notification.encrypted_message_payload is None
     assert db.scalar(select(Delivery.status).where(
         Delivery.notification_id == notification.id
-    )) == DeliveryStatus.cancelled
+    )) is None
     assert not service.cancel(db, person.id, notification.id)
 
 
@@ -306,7 +336,7 @@ def test_notification_is_delivered_after_release_time(db, settings, cipher):
     assert provider.recipients == ["owner@example.org"]
 
 
-def test_delivery_success_removes_message(db, settings, cipher):
+def test_delivery_success_keeps_message_for_protected_inbox(db, settings, cipher):
     account = active_account(db, settings, cipher)
     management = ManagementService(settings, cipher)
     origin = management.add_partner(db, account.id, "Origin")
@@ -318,7 +348,7 @@ def test_delivery_success_removes_message(db, settings, cipher):
     assert DeliveryService(settings, cipher, {"email": provider}).process_due(db) == 1
     db.refresh(notification)
     assert notification.status == NotificationStatus.delivered
-    assert notification.encrypted_message_payload is None
+    assert notification.encrypted_message_payload is not None
     assert provider.recipients == ["owner@example.org"]
     delivery = db.scalar(select(Delivery).where(Delivery.notification_id == notification.id))
     assert delivery.processing_started_at is None
@@ -504,7 +534,10 @@ def test_delivery_rechecks_authorization_before_provider(
     assert delivery.next_retry_at is None
     assert cipher.decrypt(delivery.encrypted_error_detail) == reason
     assert notification.status == NotificationStatus.discarded
-    assert notification.encrypted_message_payload is None
+    if change == "missing_payload":
+        assert notification.encrypted_message_payload is None
+    else:
+        assert notification.encrypted_message_payload is not None
 
 
 def test_overdue_account_remains_authorized_for_delivery(db, settings, cipher):
@@ -629,7 +662,7 @@ def test_notification_aggregate_is_consistent_when_authorization_is_partly_revok
     assert provider.recipients == ["owner@example.org"]
     assert statuses == {DeliveryStatus.delivered, DeliveryStatus.cancelled}
     assert notification.status == NotificationStatus.partially_delivered
-    assert notification.encrypted_message_payload is None
+    assert notification.encrypted_message_payload is not None
 
 
 def test_delivery_email_uses_account_language(db, settings, cipher):
@@ -644,13 +677,14 @@ def test_delivery_email_uses_account_language(db, settings, cipher):
     )
     provider = SuccessfulProvider()
     DeliveryService(settings, cipher, {"email": provider}).process_due(db)
-    assert provider.messages[0][1] == "Confidential notification"
-    assert "A trusted contact sent" in provider.messages[0][2]
+    assert provider.messages[0][1] == "New confidential message in SilentRelay"
+    assert "A sufficiently long message." not in provider.messages[0][2]
+    assert "personal SilentRelay access" in provider.messages[0][2]
     assert "Replies are not read and are deleted automatically" in (
         provider.messages[0][2]
     )
     db.refresh(notification)
-    assert notification.encrypted_message_payload is None
+    assert notification.encrypted_message_payload is not None
 
 
 def test_temporary_delivery_failure_schedules_retry(db, settings, cipher):
