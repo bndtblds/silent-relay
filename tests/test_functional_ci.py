@@ -12,8 +12,9 @@ def test_functional_workflow_runs_the_complete_locked_suite():
 
     assert "pull_request:" in workflow
     assert "branches:\n      - main" in workflow
+    assert 'tags:\n      - "v*"' in workflow
     assert "permissions:\n  contents: read" in workflow
-    assert "fetch-depth: 2" in workflow
+    assert "fetch-depth: 0" in workflow
     assert "uv sync --locked --extra test" in workflow
     assert "uv run pytest" in workflow
     assert "tests/" not in workflow
@@ -28,6 +29,7 @@ def test_functional_workflow_publishes_branch_coverage_without_arbitrary_gate():
     assert "--cov-report=xml:coverage/coverage.xml" in workflow
     assert "--cov-report=html:coverage/html" in workflow
     assert "name: coverage-${{ github.sha }}" in workflow
+    assert "commit=%s\\nrun_id=%s\\nrun_number=%s\\n" in workflow
     assert "fail-under" not in workflow
 
 

@@ -15,7 +15,6 @@ SEMVER_PATTERN = (
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
 )
 VERSION_PATTERN = re.compile(rf'(?m)^__version__\s*=\s*"({SEMVER_PATTERN})"\s*$')
-LEGACY_PATTERN = re.compile(r'(?m)^version\s*=\s*"([^"]+)"\s*$')
 
 
 class VersionCheckError(RuntimeError):
@@ -79,9 +78,8 @@ def version_from_tag(tag: str) -> str:
     return value
 
 
-def version_from_source(source: str, *, legacy: bool = False) -> str:
-    pattern = LEGACY_PATTERN if legacy else VERSION_PATTERN
-    match = pattern.search(source)
+def version_from_source(source: str) -> str:
+    match = VERSION_PATTERN.search(source)
     if match is None:
         raise VersionCheckError("Version source does not contain a valid version")
     value = match.group(1)
@@ -100,42 +98,46 @@ def _git(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str
     )
 
 
-def _previous_version(reference: str) -> str:
-    result = _git("show", f"{reference}:app/version.py", check=False)
-    if result.returncode == 0:
-        return version_from_source(result.stdout)
-    result = _git("show", f"{reference}:pyproject.toml", check=False)
-    if result.returncode == 0:
-        return version_from_source(result.stdout, legacy=True)
-    raise VersionCheckError(f"Could not read a version from {reference}")
+def validate_release_tags(
+    current_value: str,
+    tags_at_head: list[str],
+    repository_tags: list[str],
+) -> None:
+    release_tags_at_head = [tag for tag in tags_at_head if tag.startswith("v")]
+    for tag in release_tags_at_head:
+        if version_from_tag(tag) != current_value:
+            raise VersionCheckError(
+                f"Release tag {tag!r} does not match version {current_value}"
+            )
+    if not release_tags_at_head:
+        return
+
+    current = parse_version(current_value)
+    for tag in (tag for tag in repository_tags if tag.startswith("v")):
+        tagged_value = version_from_tag(tag)
+        if tag not in release_tags_at_head and not is_newer(
+            current, parse_version(tagged_value)
+        ):
+            raise VersionCheckError(
+                f"Release version {current_value} must be newer than {tagged_value}"
+            )
 
 
-def check_repository_version() -> tuple[str, str]:
+def check_repository_version() -> str:
     current_value = version_from_source(VERSION_FILE.read_text(encoding="utf-8"))
-    status = _git("status", "--porcelain", "--untracked-files=normal").stdout
-    reference = "HEAD" if status.strip() else "HEAD^"
-    previous_value = _previous_version(reference)
-    if not is_newer(parse_version(current_value), parse_version(previous_value)):
-        raise VersionCheckError(
-            f"Version {current_value} must be newer than {previous_value} ({reference})"
-        )
-    if not status.strip():
-        tags = _git("tag", "--points-at", "HEAD").stdout.splitlines()
-        for tag in (tag for tag in tags if tag.startswith("v")):
-            if version_from_tag(tag) != current_value:
-                raise VersionCheckError(
-                    f"Release tag {tag!r} does not match version {current_value}"
-                )
-    return current_value, previous_value
+    tags_at_head = _git("tag", "--points-at", "HEAD").stdout.splitlines()
+    repository_tags = _git("tag", "--list", "v*").stdout.splitlines()
+    validate_release_tags(current_value, tags_at_head, repository_tags)
+    return current_value
 
 
 def main() -> int:
     try:
-        current, previous = check_repository_version()
+        current = check_repository_version()
     except (OSError, subprocess.SubprocessError, VersionCheckError) as exc:
         print(f"Version check failed: {exc}", file=sys.stderr)
         return 1
-    print(f"Version check passed: {previous} -> {current}")
+    print(f"Version check passed: {current}")
     return 0
 
 

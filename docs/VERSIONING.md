@@ -10,15 +10,19 @@ The Python package metadata is generated from it. Generated metadata such as
 `uv.lock` must be refreshed after changing the canonical version; it is not an
 independent version source.
 
-Every commit must advance the version from its first parent. Use:
+The canonical version describes a release, not an individual development
+commit. Several commits and pull requests may therefore retain the same
+version. Change it deliberately when preparing a release, using:
 
 - `PATCH` for backward-compatible fixes and documentation-only changes;
 - `MINOR` for backward-compatible features; and
 - `MAJOR` for incompatible public behavior or contracts.
 
-Several commits must never share a version, even when they belong to one
-planned release. A push only transports existing commits and does not change
-their versions.
+Do not add a fourth numeric component. Git commit identifiers, CI run IDs, and
+container image digests are build identities and remain separate from the
+product version. Where a combined display value is useful, SemVer build
+metadata such as `1.3.8+git.19f0f54` may be derived without changing the
+canonical source or version precedence.
 
 Run the repository check before committing:
 
@@ -26,10 +30,10 @@ Run the repository check before committing:
 uv run python scripts/check_version.py
 ```
 
-The check validates Semantic Versioning and requires the working version to be
-newer than `HEAD` when changes are present. In a clean checkout it compares
-`HEAD` with its first parent. This makes the same check suitable before a
-commit and in automated verification after a commit.
+The check always validates Semantic Versioning. Ordinary commits do not need
+to advance it. On a `v<version>` release tag, the check additionally requires
+the tag to match the canonical version exactly and the release version to be
+newer than every other release tag in the repository.
 
 ## Releases
 
@@ -42,6 +46,10 @@ must also be recorded by immutable digest for reproducible deployment.
 A deployment manifest records the immutable SilentRelay release tag, full
 commit identifier, and exact container image digest. A floating branch,
 mutable image tag, or version range is not a reproducible build input.
+
+CI artifacts record the full Git commit and GitHub Actions run identifiers.
+These identify a concrete build without consuming or extending the product's
+three-part Semantic Version.
 
 ## Public contract versions
 

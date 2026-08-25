@@ -87,9 +87,10 @@ uv run pytest --cov=app --cov-report=term-missing
 
 Pull requests and pushes to `main` must pass the separate Tests workflow. It
 installs the locked test environment, runs the complete normal test suite with
-branch coverage, checks the version transition, and publishes the HTML and XML
-coverage reports as a workflow artifact. The measured coverage is reported but
-is not subject to an arbitrary minimum threshold.
+branch coverage, validates the canonical and release-tag versions, and
+publishes the HTML and XML coverage reports plus the commit and workflow-run
+identity as a workflow artifact. The measured coverage is reported but is not
+subject to an arbitrary minimum threshold.
 
 The opt-in Docker backup and restore integration test remains separate from
 this required gate because it needs additional host tools and performs a
@@ -330,8 +331,9 @@ production configuration.
 
 ## Before committing
 
-Advance the canonical version in `app/version.py` for every commit, refresh
-`uv.lock`, and verify the version transition:
+Keep the canonical version in `app/version.py` unchanged for ordinary
+development commits. Advance it deliberately when preparing a release and
+refresh `uv.lock` if needed. Validate the version and any current release tag:
 
 ```sh
 uv run python scripts/check_version.py
