@@ -46,3 +46,13 @@ def test_security_workflow_actions_are_pinned_to_full_commits():
 
     assert action_references
     assert all(re.fullmatch(rf"[^@]+@{FULL_COMMIT}", value) for value in action_references)
+
+
+def test_codeql_sarif_upload_uses_reviewed_version():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    reference = (
+        "github/codeql-action/upload-sarif@"
+        "db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8"
+    )
+
+    assert workflow.count(reference) == 3
