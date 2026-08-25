@@ -13,6 +13,7 @@ def test_functional_workflow_runs_the_complete_locked_suite():
     assert "pull_request:" in workflow
     assert "branches:\n      - main" in workflow
     assert "permissions:\n  contents: read" in workflow
+    assert "fetch-depth: 2" in workflow
     assert "uv sync --locked --extra test" in workflow
     assert "uv run pytest" in workflow
     assert "tests/" not in workflow
