@@ -18,6 +18,7 @@ def test_functional_workflow_runs_the_complete_locked_suite():
     assert "uv run pytest" in workflow
     assert "tests/" not in workflow
     assert "scripts/check_version.py" in workflow
+    assert workflow.index("scripts/check_version.py") < workflow.index("uv run pytest")
 
 
 def test_functional_workflow_publishes_branch_coverage_without_arbitrary_gate():

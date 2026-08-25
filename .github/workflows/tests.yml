@@ -38,6 +38,9 @@ jobs:
       - name: Install locked test environment
         run: uv sync --locked --extra test
 
+      - name: Check version transition
+        run: uv run python scripts/check_version.py
+
       - name: Run complete test suite with branch coverage
         run: >-
           uv run pytest
@@ -46,9 +49,6 @@ jobs:
           --cov-report=term-missing
           --cov-report=xml:coverage/coverage.xml
           --cov-report=html:coverage/html
-
-      - name: Check version transition
-        run: uv run python scripts/check_version.py
 
       - name: Upload coverage report
         if: always()
