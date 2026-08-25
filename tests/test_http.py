@@ -736,6 +736,7 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         assert "Kontoverwaltung" in login.text
         assert login.text.count('id="account-owner-name"') == 1
         assert "Erika Beispiel <span>(Kontoinhaber)</span>" in login.text
+        assert '<details class="panel person-card owner-card" id="kontoinhaber" name="account-person" open>' in login.text
         assert login.text.index("Name des Kontoinhabers") < login.text.index("Kontaktwege für Erika Beispiel")
         assert login.text.index("Kontaktwege für Erika Beispiel") < login.text.index("<h2>Konto und Sicherheit</h2>")
         assert "Neuen Kontoinhaber-Zugang erstellen" in login.text
@@ -783,6 +784,7 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         dashboard = client.get("/account/dashboard")
         assert "partner-card" in dashboard.text
         assert "Erster Partner <span>(Partner)</span>" in dashboard.text
+        assert '<details class="partner-card person-card" name="account-person">' in dashboard.text
         assert '<summary class="person-header">' in dashboard.text
         assert "Vertrauenspersonen für Erster Partner" in dashboard.text
         assert "Zugang ersetzen" in dashboard.text

@@ -32,11 +32,12 @@
 <p class="success-message"><strong>SilentRelay ist einsatzbereit.</strong> Es gibt mindestens eine Vertrauensperson und mindestens einen berechtigten Empfänger.</p>
 {% endif %}
 
-<section class="panel person-card owner-card" id="kontoinhaber">
-  <header class="person-header">
-    <div><span class="eyebrow">Kontoinhaber</span><h2>{{ owner_name or "Name ergänzen" }} <span>(Kontoinhaber)</span></h2><p>Verwaltet SilentRelay und ist zugleich Teil der Benachrichtigungsgruppe.</p></div>
+<details class="panel person-card owner-card" id="kontoinhaber" name="account-person" open>
+  <summary class="person-header">
+    <span><span class="eyebrow">Kontoinhaber</span><strong>{{ owner_name or "Name ergänzen" }} <span>(Kontoinhaber)</span></strong><small>Verwaltet SilentRelay und ist zugleich Teil der Benachrichtigungsgruppe.</small></span>
     <span class="person-summary">{{ contacts|length }} Kontaktweg{{ "e" if contacts|length != 1 else "" }} · {{ owner_people|length }} Vertrauensperson{{ "en" if owner_people|length != 1 else "" }}</span>
-  </header>
+  </summary>
+  <div class="person-card-body owner-card-body">
   <form class="partner-name-form owner-name-form" method="post" action="/account/name"><input type="hidden" name="csrf" value="{{ csrf }}"><label for="account-owner-name"><span class="eyebrow">Name des Kontoinhabers</span></label><div class="inline-edit"><input id="account-owner-name" name="name" maxlength="200" value="{{ owner_name }}" autocomplete="name" required><button>Name speichern</button></div></form>{% if not owner_name %}<p class="warning">Bitte ergänzen Sie Ihren Namen. Er wird ausschließlich im geschützten Nachrichteneingang als betroffene Person angezeigt.</p>{% else %}<p class="form-hint">Dieser Name wird ausschließlich im geschützten Nachrichteneingang als betroffene Person angezeigt.</p>{% endif %}
   <div class="person-section"><h3>Kontaktwege für {{ owner_name or "den Kontoinhaber" }}</h3>
   <ul class="item-list">{% for c in contacts %}<li><span><strong>{{ c.value }}</strong><span class="badge {{ 'success' if c.state == 'confirmed' else 'pending' }}">{{ {"confirmed": "Bestätigt", "review_pending": "Erneute Bestätigung ausstehend", "undeliverable": "Unzustellbar", "expired": "Bestätigung abgelaufen", "initial_pending": "Bestätigung ausstehend"}[c.state] }}</span>{% if c.delivery_failed %}<small class="error">Eine E-Mail an diese Adresse war endgültig unzustellbar. Bitte bestätigen Sie die Adresse erneut oder ersetzen Sie sie.</small>{% elif c.review_expired and not c.verified %}<small class="error">Diese Adresse wurde bei der regelmäßigen Prüfung nicht rechtzeitig bestätigt und wird nicht mehr benachrichtigt.</small>{% elif c.state == "review_pending" %}<small>Der persönliche Bestätigungslink wurde automatisch an diese Adresse gesendet.</small>{% endif %}</span><span class="actions">
@@ -49,14 +50,15 @@
     <form method="post" action="/account/trusted-persons/{{ person.id }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger" data-confirm="Diese Vertrauensperson und ihren QR-Zugang dauerhaft löschen?">Löschen</button></form></span></li>{% else %}<li class="empty-state">Dem Kontoinhaber ist noch keine Vertrauensperson zugeordnet.</li>{% endfor %}</ul>
     <form class="add-form" method="post" action="/account/trusted-persons"><input type="hidden" name="csrf" value="{{ csrf }}"><label>Anzeigename der Vertrauensperson<input name="name"></label><p class="form-hint">Als Nächstes erscheint der persönliche QR-Code zum sicheren Ausdrucken und Weitergeben.</p><button>Vertrauensperson hinzufügen und QR-Code anzeigen</button></form>
   </div>
-</section>
+  </div>
+</details>
 
 <section id="partner">
   <div class="section-heading"><div><h2>Partner</h2><p>Partner sind weitere Personen in der Benachrichtigungsgruppe. Jeder Partner kann eigene Kontaktwege und Vertrauenspersonen haben.</p></div></div>
   <div class="explanation"><strong>Wer erhält eine Nachricht?</strong><p>Beim Freigabezeitpunkt werden der Kontoinhaber und alle aktiven Partner mit eingerichtetem Zugang festgehalten. Bestätigte Kontaktwege erhalten zusätzlich einen neutralen E-Mail-Hinweis. Die Vertrauensperson erfährt weder Namen noch Anzahl der Empfänger.</p></div>
   {% if not partners %}<div class="empty-state panel"><strong>Noch kein Partner vorhanden.</strong><p>Legen Sie zuerst einen Partner an. Anschließend können Sie dessen Kontaktwege und Vertrauenspersonen hinzufügen.</p></div>{% endif %}
 
-  <div class="partner-list">{% for p in partners %}<details class="partner-card person-card" {% if loop.first %}open{% endif %}>
+  <div class="partner-list">{% for p in partners %}<details class="partner-card person-card" name="account-person">
     <summary class="person-header">
       <span><span class="eyebrow">Partner</span><strong>{{ p.name }} <span>(Partner)</span></strong><small>{{ p.contacts|length }} Kontaktweg{{ "e" if p.contacts|length != 1 else "" }} · {{ p.people|length }} Vertrauensperson{{ "en" if p.people|length != 1 else "" }}</small></span>
       <span class="badge {{ 'success' if p.active else 'pending' }}">{{ "Aktiv" if p.active else "Deaktiviert" }}</span>
