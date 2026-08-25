@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -24,7 +26,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install Python and uv
@@ -50,11 +52,20 @@ jobs:
           --cov-report=xml:coverage/coverage.xml
           --cov-report=html:coverage/html
 
+      - name: Record build identity
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p coverage
+          printf 'commit=%s\nrun_id=%s\nrun_number=%s\n' \
+            "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" \
+            > coverage/build.txt
+
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-${{ github.sha }}
           path: coverage/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30

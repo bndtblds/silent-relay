@@ -12,6 +12,7 @@ from scripts.check_version import (
     check_repository_version,
     is_newer,
     parse_version,
+    validate_release_tags,
     version_from_tag,
 )
 
@@ -27,11 +28,8 @@ def test_project_uses_canonical_version_source():
     assert __version__ == "1.3.8"
 
 
-def test_current_commit_advances_the_version():
-    current, previous = check_repository_version()
-
-    assert current == __version__
-    assert is_newer(parse_version(current), parse_version(previous))
+def test_repository_version_is_valid_without_per_commit_increment():
+    assert check_repository_version() == __version__
 
 
 @pytest.mark.parametrize("value", ["1.0", "01.0.0", "1.0.0-01", "v1.0.0"])
@@ -50,6 +48,22 @@ def test_release_tag_contains_the_exact_semantic_version():
     assert version_from_tag("v1.1.0") == "1.1.0"
     with pytest.raises(VersionCheckError):
         version_from_tag("release-1.1.0")
+
+
+def test_release_tag_must_match_the_canonical_version():
+    with pytest.raises(VersionCheckError, match="does not match"):
+        validate_release_tags("1.3.8", ["v1.3.7"], ["v1.3.7"])
+
+
+def test_release_version_must_advance_past_existing_release_tags():
+    validate_release_tags("1.3.8", ["v1.3.8"], ["v1.3.7", "v1.3.8"])
+
+    with pytest.raises(VersionCheckError, match="must be newer"):
+        validate_release_tags("1.3.8", ["v1.3.8"], ["v1.3.8", "v1.4.0"])
+
+
+def test_ordinary_commit_may_retain_the_current_release_version():
+    validate_release_tags("1.3.8", [], ["v1.3.8"])
 
 
 def test_entitlement_provider_contract_is_version_one():
