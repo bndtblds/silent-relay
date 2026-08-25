@@ -85,6 +85,17 @@ Show coverage when needed:
 uv run pytest --cov=app --cov-report=term-missing
 ```
 
+Pull requests and pushes to `main` must pass the separate Tests workflow. It
+installs the locked test environment, runs the complete normal test suite with
+branch coverage, checks the version transition, and publishes the HTML and XML
+coverage reports as a workflow artifact. The measured coverage is reported but
+is not subject to an arbitrary minimum threshold.
+
+The opt-in Docker backup and restore integration test remains separate from
+this required gate because it needs additional host tools and performs a
+heavyweight deployment exercise. Migration tests remain part of the normal
+required test run.
+
 ## Run SilentRelay locally
 
 This section is only needed for browser-based development. Automated tests are
