@@ -735,8 +735,9 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         assert login.status_code == 200
         assert "Kontoverwaltung" in login.text
         assert login.text.count('id="account-owner-name"') == 1
-        assert login.text.index("Name des Kontoinhabers") < login.text.index("Kontaktwege des Kontoinhabers")
-        assert login.text.index("Kontaktwege des Kontoinhabers") < login.text.index("<h2>Konto und Sicherheit</h2>")
+        assert "Erika Beispiel <span>(Kontoinhaber)</span>" in login.text
+        assert login.text.index("Name des Kontoinhabers") < login.text.index("Kontaktwege für Erika Beispiel")
+        assert login.text.index("Kontaktwege für Erika Beispiel") < login.text.index("<h2>Konto und Sicherheit</h2>")
         assert "Neuen Kontoinhaber-Zugang erstellen" in login.text
         assert "sr_account_owner" in client.cookies
         assert "sr_admin" not in client.cookies
@@ -781,6 +782,11 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         assert client.get("/partner/inbox").status_code == 200
         dashboard = client.get("/account/dashboard")
         assert "partner-card" in dashboard.text
+        assert "Erster Partner <span>(Partner)</span>" in dashboard.text
+        assert '<summary class="person-header">' in dashboard.text
+        assert "Vertrauenspersonen für Erster Partner" in dashboard.text
+        assert "Zugang ersetzen" in dashboard.text
+        assert "Partner verwalten" in dashboard.text
         assert "Weiteren Partner hinzufügen" in dashboard.text
         assert 'class="inbox-cta"' not in dashboard.text
         assert '>Nachrichteneingang</a>' in dashboard.text
