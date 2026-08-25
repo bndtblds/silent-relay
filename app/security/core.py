@@ -37,6 +37,19 @@ def fingerprint(value: str, key: str) -> str:
 def hash_password(password: str) -> str:
     if not 12 <= len(password) <= 256:
         raise ValueError("Das Passwort muss 12 bis 256 Zeichen lang sein.")
+    normalized = password.strip().casefold()
+    character_classes = sum((
+        any(value.islower() for value in password),
+        any(value.isupper() for value in password),
+        any(value.isdigit() for value in password),
+        any(not value.isalnum() for value in password),
+    ))
+    trivial_passwords = {
+        "password123456!", "passwort123456!", "qwerty-qwerty",
+        "qwertz-qwertz", "123456789012", "654321654321",
+    }
+    if character_classes < 2 or len(set(password)) < 4 or normalized in trivial_passwords:
+        raise ValueError("Wählen Sie ein längeres, nicht leicht zu erratendes Passwort oder eine Passphrase.")
     return _password_hasher.hash(password)
 
 
@@ -59,7 +72,10 @@ _OBVIOUS_PINS = {
 def hash_pin(pin: str) -> str:
     if len(pin) != 6 or not pin.isascii() or not pin.isdigit():
         raise ValueError("Die PIN muss aus genau sechs Ziffern bestehen.")
-    if pin in _OBVIOUS_PINS:
+    repeated_pair = pin[:2] * 3 == pin
+    repeated_triplet = pin[:3] * 2 == pin
+    paired_sequence = pin[0] == pin[1] and pin[2] == pin[3] and pin[4] == pin[5]
+    if pin in _OBVIOUS_PINS or repeated_pair or repeated_triplet or paired_sequence:
         raise ValueError("Wählen Sie eine weniger leicht zu erratende PIN.")
     return _password_hasher.hash(pin)
 
@@ -143,6 +159,13 @@ class SessionManager:
         result = db.execute(delete(ServerSession).where(
             ServerSession.kind == "partner",
             ServerSession.partner_id == partner_id,
+        ))
+        return result.rowcount or 0
+
+    def revoke_trusted_person_sessions(self, db: Session, person_id: str) -> int:
+        result = db.execute(delete(ServerSession).where(
+            ServerSession.kind == "trusted_person",
+            ServerSession.trusted_person_id == person_id,
         ))
         return result.rowcount or 0
 

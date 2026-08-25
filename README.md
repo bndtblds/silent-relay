@@ -39,7 +39,7 @@ replace emergency services or official arrangements.
 - Partners with personal secret access plus password, and trusted persons
   within one private group
 - Secret, printable QR access plus a personal six-digit PIN for each trusted
-  person
+  person; authenticated trusted persons can change their PIN themselves
 - Confidential message submission with a review step, a ten-minute waiting
   period by default, and cancellation before release for delivery
 - Server-side recipient selection without exposing names or recipient counts
@@ -48,6 +48,9 @@ replace emergency services or official arrangements.
 - Optional automatic detection of permanent email delivery failures
 - German and English user interfaces with one consistent language per account
 - A separate technical administration area
+- Immediate browser feedback when repeated password or PIN entries do not
+  match, backed by mandatory server-side validation and rejection of basic
+  trivial credential patterns
 - Protected personal inboxes for the account holder and activated partners
 - Inbox delivery does not depend on email availability; verified contact
   methods are used only for neutral availability notices

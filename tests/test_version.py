@@ -24,7 +24,7 @@ def test_project_uses_canonical_version_source():
 
     assert 'dynamic = ["version"]' in pyproject
     assert 'path = "app/version.py"' in pyproject
-    assert __version__ == "1.2.0"
+    assert __version__ == "1.3.0"
 
 
 def test_current_commit_advances_the_version():

@@ -1009,9 +1009,13 @@ def change_password(
     csrf_guard(request, session, settings, csrf)
     if new_password != new_password_confirm:
         raise HTTPException(400, translate(account.language_code, "error.password_mismatch"))
-    if not AuthenticationService(settings).change_password(
-        db, account.id, current_password, new_password
-    ):
+    try:
+        changed = AuthenticationService(settings).change_password(
+            db, account.id, current_password, new_password
+        )
+    except ValueError:
+        raise HTTPException(400, translate(account.language_code, "error.password_invalid"))
+    if not changed:
         raise HTTPException(401, translate(account.language_code, "error.login"))
     response = RedirectResponse("/", 303)
     response.delete_cookie("sr_account_owner")
@@ -1321,7 +1325,7 @@ def trusted_login(
     else:
         record.failed_pin_attempts += 1
         attempts = record.failed_pin_attempts
-        lock_minutes = 30 if attempts >= 10 else 5 if attempts >= 8 else 1 if attempts >= 5 else 0
+        lock_minutes = 30 if attempts >= 8 else 5 if attempts >= 5 else 1 if attempts >= 3 else 0
         if lock_minutes:
             record.locked_until = now + timedelta(minutes=lock_minutes)
         error = translate(account.language_code, "trusted.pin_failed")
@@ -1331,6 +1335,34 @@ def trusted_login(
             request, account.language_code, token=token, csrf=csrf, error=error,
         ), status_code=401,
     )
+
+
+@router.post("/notify/{token}/pin/change")
+def trusted_change_pin(
+    token: str, request: Request, current_pin: str = Form(...),
+    new_pin: str = Form(...), new_pin_confirm: str = Form(...),
+    csrf: str = Form(...), db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    service = NotificationService(settings, FieldCipher(settings.field_encryption_key))
+    access = service.resolve_access(db, token)
+    if not access:
+        raise HTTPException(404)
+    person, _ = access
+    account = db.get(Account, person.account_id)
+    trusted_csrf_guard(request, db, settings, person.id, csrf)
+    if new_pin != new_pin_confirm:
+        raise HTTPException(400, translate(account.language_code, "trusted.pin_mismatch"))
+    try:
+        changed = service.change_pin(db, person.id, current_pin, new_pin)
+    except ValueError:
+        raise HTTPException(400, translate(account.language_code, "trusted.pin_change_invalid"))
+    if not changed:
+        raise HTTPException(401, translate(account.language_code, "trusted.pin_failed"))
+    response = RedirectResponse(f"/notify/{token}", 303)
+    response.delete_cookie("sr_trusted_person")
+    response.delete_cookie("sr_trusted_person_csrf")
+    return response
 
 
 @router.post("/notify/{token}", response_class=HTMLResponse)

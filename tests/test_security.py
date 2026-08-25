@@ -26,6 +26,13 @@ def test_password_limits():
         pass
     else:
         raise AssertionError("short password accepted")
+    for trivial in ("aaaaaaaaaaaa", "Password123456!", "qwertz-qwertz"):
+        try:
+            hash_password(trivial)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"trivial password accepted: {trivial}")
 
 
 def test_trusted_person_pin_is_argon2id_and_rejects_obvious_values():
@@ -33,7 +40,7 @@ def test_trusted_person_pin_is_argon2id_and_rejects_obvious_values():
     assert stored.startswith("$argon2id$")
     assert verify_pin(stored, "472915")
     assert not verify_pin(stored, "472916")
-    for invalid in ("123456", "111111", "12345", "abcdef"):
+    for invalid in ("123456", "111111", "121212", "123123", "112233", "12345", "abcdef"):
         try:
             hash_pin(invalid)
         except ValueError:

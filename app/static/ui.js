@@ -66,3 +66,27 @@ document.querySelectorAll("[data-local-datetime]").forEach((element) => {
     // Keep the visible UTC fallback when local formatting is unavailable.
   }
 });
+
+document.querySelectorAll('input[name$="_confirm"]').forEach((confirmation) => {
+  const sourceName = confirmation.name.replace(/_confirm$/, "");
+  const source = confirmation.form?.elements.namedItem(sourceName);
+  if (!(source instanceof HTMLInputElement)) {
+    return;
+  }
+  const status = document.createElement("span");
+  status.className = "form-hint field-match-error";
+  status.setAttribute("aria-live", "polite");
+  status.id = `${confirmation.id || confirmation.name}-match-status`;
+  confirmation.insertAdjacentElement("afterend", status);
+  confirmation.setAttribute("aria-describedby", status.id);
+  const validateMatch = () => {
+    const mismatch = confirmation.value !== "" && source.value !== confirmation.value;
+    const message = document.documentElement.lang === "de"
+      ? "Die Eingaben stimmen nicht überein."
+      : "The entries do not match.";
+    confirmation.setCustomValidity(mismatch ? message : "");
+    status.textContent = mismatch ? message : "";
+  };
+  source.addEventListener("input", validateMatch);
+  confirmation.addEventListener("input", validateMatch);
+});

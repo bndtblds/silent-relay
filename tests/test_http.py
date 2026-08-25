@@ -26,10 +26,11 @@ from app.models import (
     SystemConfiguration,
     TrustedPerson,
     TrustedPersonToken,
+    ServerSession,
 )
 from app.providers.base import DeliveryResult
 from app.routers import admin, web
-from app.security.core import FieldCipher, hash_password, keyed_hash
+from app.security.core import FieldCipher, hash_password, hash_pin, keyed_hash, verify_pin
 from app.security.core import SessionManager
 from app.services import AccountService, ManagementService
 from app.time import utc_now
@@ -458,7 +459,7 @@ def test_trusted_access_requires_timely_pin_setup_and_locks_repeated_failures():
         client.cookies.delete("sr_trusted_person_csrf")
         login_form = client.get(path)
         login_csrf = hidden_value(login_form.text, "csrf")
-        for _ in range(5):
+        for _ in range(3):
             failed = client.post(
                 f"{path}/login", data={"csrf": login_csrf, "pin": "472916"}
             )
@@ -467,6 +468,58 @@ def test_trusted_access_requires_timely_pin_setup_and_locks_repeated_failures():
     with Session(engine) as db:
         record = db.get(TrustedPersonToken, person.id)
         assert record.locked_until > utc_now()
+
+
+def test_trusted_person_can_change_pin_and_live_match_check_is_available():
+    settings = get_settings()
+    cipher = FieldCipher(settings.field_encryption_key)
+    with Session(engine, expire_on_commit=False) as db:
+        accounts = AccountService(settings, cipher)
+        account, _, setup_token = accounts.create(db)
+        _, verification_token = accounts.setup(
+            db, setup_token, "correct horse battery staple", "owner@example.org"
+        )
+        accounts.verify_contact(db, verification_token)
+        person, access_token = ManagementService(settings, cipher).add_trusted_person(
+            db, account.id, "account", account.id, "Trusted"
+        )
+        record = db.get(TrustedPersonToken, person.id)
+        record.pin_hash = hash_pin("472915")
+        record.enrolled_at = utc_now()
+        db.commit()
+
+    path = f"/notify/{access_token}"
+    with TestClient(app) as client:
+        login_form = client.get(path)
+        logged_in = client.post(
+            f"{path}/login",
+            data={"csrf": hidden_value(login_form.text, "csrf"), "pin": "472915"},
+            follow_redirects=True,
+        )
+        assert "PIN ändern" in logged_in.text
+        changed = client.post(
+            f"{path}/pin/change",
+            data={
+                "csrf": hidden_value(logged_in.text, "csrf"),
+                "current_pin": "472915",
+                "new_pin": "583026",
+                "new_pin_confirm": "583026",
+            },
+            follow_redirects=False,
+        )
+        assert changed.status_code == 303
+        assert "sr_trusted_person" not in client.cookies
+        script = client.get("/static/ui.js")
+        assert 'input[name$="_confirm"]' in script.text
+        assert "setCustomValidity" in script.text
+
+    with Session(engine) as db:
+        record = db.get(TrustedPersonToken, person.id)
+        assert verify_pin(record.pin_hash, "583026")
+        assert not verify_pin(record.pin_hash, "472915")
+        assert db.scalar(select(ServerSession).where(
+            ServerSession.trusted_person_id == person.id
+        )) is None
 
 
 def test_trusted_access_setup_expires_after_fourteen_days():

@@ -20,7 +20,7 @@ from app.models import (
 from app.providers.base import NotificationProvider
 from app.security.core import (
     FieldCipher, SessionManager, fingerprint, generate_token, hash_password,
-    keyed_hash, verify_password,
+    hash_pin, keyed_hash, verify_password, verify_pin,
 )
 from app.system_config import review_reminder_days, system_configuration
 from app.time import utc_now
@@ -78,7 +78,7 @@ class AccountService:
         try:
             credential.password_hash = hash_password(password)
         except ValueError as exc:
-            raise ValueError(translate(language, "error.password_length")) from exc
+            raise ValueError(translate(language, "error.password_invalid")) from exc
         credential.password_changed_at = utc_now()
         credential.account.encrypted_owner_name = self.cipher.encrypt(normalized_name)
         credential.setup_token_hash = None
@@ -294,6 +294,8 @@ class AuthenticationService:
         credential = db.get(AccountOwnerCredential, account_id)
         if not credential or not verify_password(credential.password_hash, current_password):
             return False
+        if verify_password(credential.password_hash, new_password):
+            raise ValueError
         credential.password_hash = hash_password(new_password)
         credential.password_changed_at = utc_now()
         SessionManager(self.settings).revoke_account_owner_sessions(db, account_id)
@@ -510,6 +512,8 @@ class PartnerAuthenticationService:
         credential = db.get(PartnerCredential, partner_id)
         if not credential or not verify_password(credential.password_hash, current_password):
             return False
+        if verify_password(credential.password_hash, new_password):
+            raise ValueError
         credential.password_hash = hash_password(new_password)
         credential.password_changed_at = utc_now()
         SessionManager(self.settings).revoke_partner_sessions(db, partner_id)
@@ -520,6 +524,23 @@ class PartnerAuthenticationService:
 class NotificationService:
     def __init__(self, settings: Settings, cipher: FieldCipher):
         self.settings, self.cipher = settings, cipher
+
+    def change_pin(
+        self, db: Session, person_id: str, current_pin: str, new_pin: str
+    ) -> bool:
+        record = db.get(TrustedPersonToken, person_id)
+        person = db.get(TrustedPerson, person_id)
+        if not record or not person or not verify_pin(record.pin_hash, current_pin):
+            return False
+        if verify_pin(record.pin_hash, new_pin):
+            raise ValueError
+        record.pin_hash = hash_pin(new_pin)
+        record.failed_pin_attempts = 0
+        record.locked_until = None
+        SessionManager(self.settings).revoke_trusted_person_sessions(db, person_id)
+        audit(db, "trusted_person_pin_changed", person.account_id)
+        db.commit()
+        return True
 
     def eligible_contacts(self, db: Session, person: TrustedPerson) -> list[ContactMethod]:
         active_partner_ids = select(Partner.id).where(

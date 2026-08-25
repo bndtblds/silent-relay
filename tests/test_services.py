@@ -14,7 +14,7 @@ from app.models import (
     SystemConfiguration, TrustedPersonToken,
 )
 from app.providers.base import DeliveryResult
-from app.security.core import SessionManager, hash_password, hash_pin, keyed_hash
+from app.security.core import SessionManager, hash_password, hash_pin, keyed_hash, verify_pin
 from app.services import (
     AccountService, AuthenticationService, DeliveryService, LifecycleService,
     ManagementService, NotificationService,
@@ -886,3 +886,28 @@ def test_rotating_trusted_access_revokes_pin_and_sessions(db, settings, cipher):
     assert db.scalar(select(ServerSession).where(
         ServerSession.trusted_person_id == person.id
     )) is None
+
+
+def test_changing_trusted_pin_requires_current_pin_and_revokes_sessions(
+    db, settings, cipher
+):
+    account, _, setup = AccountService(settings, cipher).create(db)
+    AccountService(settings, cipher).setup(
+        db, setup, "correct horse battery staple", "owner@example.org"
+    )
+    person, _ = ManagementService(settings, cipher).add_trusted_person(
+        db, account.id, "account", account.id, "Trusted"
+    )
+    record = db.get(TrustedPersonToken, person.id)
+    record.pin_hash = hash_pin("472915")
+    record.enrolled_at = utc_now()
+    raw_session, _ = SessionManager(settings).create(
+        db, "trusted_person", account.id, person.id
+    )
+    db.commit()
+
+    service = NotificationService(settings, cipher)
+    assert not service.change_pin(db, person.id, "472916", "583026")
+    assert service.change_pin(db, person.id, "472915", "583026")
+    assert verify_pin(record.pin_hash, "583026")
+    assert SessionManager(settings).resolve(db, raw_session, "trusted_person") is None
