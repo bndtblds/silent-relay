@@ -73,12 +73,19 @@ textarea { min-height: 12rem; resize: vertical; }
 .partner-card { overflow: hidden; }
 .person-card { border-color: #aebbc0; }
 .person-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1.35rem; background: var(--surface-muted); }
+.person-card > summary.person-header:hover { background: #e4eaec; }
 .owner-card { padding: 0; overflow: hidden; }
 .owner-card[open] > .person-header { border-bottom: 1px solid var(--border); }
 .person-header h2 { margin: .25rem 0 .35rem; }
 .person-header h2 span, .person-header strong span { color: var(--muted); font-size: .72em; font-weight: 700; }
 .person-header p { margin: 0; color: var(--muted); }
 .person-summary { flex: 0 0 auto; color: var(--muted); font-size: .9rem; font-weight: 700; }
+.person-header-meta { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-end; gap: .65rem; }
+.person-toggle { display: inline-flex; align-items: center; gap: .45rem; color: var(--accent-dark); font-size: .9rem; font-weight: 800; }
+.person-toggle-icon { width: .65rem; height: .65rem; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg) translateY(-.15rem); }
+.person-card[open] .person-toggle-icon { transform: rotate(225deg) translate(-.1rem, -.1rem); }
+.person-card .when-open, .person-card[open] .when-closed { display: none; }
+.person-card[open] .when-open { display: inline; }
 .person-card > summary.person-header { cursor: pointer; }
 .person-card > summary.person-header > span:first-child { min-width: 0; }
 .person-card > summary.person-header strong { display: block; margin: .2rem 0; color: #102027; font-size: 1.4rem; }
@@ -261,7 +268,7 @@ th, td { padding: .7rem; border-bottom: 1px solid var(--border); text-align: lef
   .settings-actions .danger-action { flex-basis: 100%; margin-left: 0; margin-top: .35rem; }
   .partner-header { align-items: flex-start; }
   .person-header { display: block; }
-  .person-header > .badge, .person-summary { display: inline-block; margin-top: .7rem; }
+  .person-header-meta { align-items: flex-start; margin-top: .7rem; }
   .person-card-body { padding: 0 .8rem .8rem; }
   .person-section { padding: 1rem; }
   .inline-edit { display: block; }

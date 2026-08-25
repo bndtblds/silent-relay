@@ -35,7 +35,7 @@
 <details class="panel person-card owner-card" id="kontoinhaber" name="account-person" open>
   <summary class="person-header">
     <span><span class="eyebrow">Kontoinhaber</span><strong>{{ owner_name or "Name ergänzen" }} <span>(Kontoinhaber)</span></strong><small>Verwaltet SilentRelay und ist zugleich Teil der Benachrichtigungsgruppe.</small></span>
-    <span class="person-summary">{{ contacts|length }} Kontaktweg{{ "e" if contacts|length != 1 else "" }} · {{ owner_people|length }} Vertrauensperson{{ "en" if owner_people|length != 1 else "" }}</span>
+    <span class="person-header-meta"><span class="person-summary">{{ contacts|length }} Kontaktweg{{ "e" if contacts|length != 1 else "" }} · {{ owner_people|length }} Vertrauensperson{{ "en" if owner_people|length != 1 else "" }}</span><span class="person-toggle"><span class="when-closed">Details anzeigen</span><span class="when-open">Details ausblenden</span><span class="person-toggle-icon" aria-hidden="true"></span></span></span>
   </summary>
   <div class="person-card-body owner-card-body">
   <form class="partner-name-form owner-name-form" method="post" action="/account/name"><input type="hidden" name="csrf" value="{{ csrf }}"><label for="account-owner-name"><span class="eyebrow">Name des Kontoinhabers</span></label><div class="inline-edit"><input id="account-owner-name" name="name" maxlength="200" value="{{ owner_name }}" autocomplete="name" required><button>Name speichern</button></div></form>{% if not owner_name %}<p class="warning">Bitte ergänzen Sie Ihren Namen. Er wird ausschließlich im geschützten Nachrichteneingang als betroffene Person angezeigt.</p>{% else %}<p class="form-hint">Dieser Name wird ausschließlich im geschützten Nachrichteneingang als betroffene Person angezeigt.</p>{% endif %}
@@ -61,7 +61,7 @@
   <div class="partner-list">{% for p in partners %}<details class="partner-card person-card" name="account-person">
     <summary class="person-header">
       <span><span class="eyebrow">Partner</span><strong>{{ p.name }} <span>(Partner)</span></strong><small>{{ p.contacts|length }} Kontaktweg{{ "e" if p.contacts|length != 1 else "" }} · {{ p.people|length }} Vertrauensperson{{ "en" if p.people|length != 1 else "" }}</small></span>
-      <span class="badge {{ 'success' if p.active else 'pending' }}">{{ "Aktiv" if p.active else "Deaktiviert" }}</span>
+      <span class="person-header-meta"><span class="badge {{ 'success' if p.active else 'pending' }}">{{ "Aktiv" if p.active else "Deaktiviert" }}</span><span class="person-toggle"><span class="when-closed">Details anzeigen</span><span class="when-open">Details ausblenden</span><span class="person-toggle-icon" aria-hidden="true"></span></span></span>
     </summary>
     <div class="person-card-body">
     <section class="person-section person-name-section"><h3>Personendaten</h3>
