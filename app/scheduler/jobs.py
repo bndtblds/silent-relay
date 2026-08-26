@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
 from sqlalchemy import or_, select
@@ -20,13 +21,20 @@ from app.system_config import system_configuration
 from app.time import utc_now
 
 
+logger = logging.getLogger("silent_relay")
+
+
 def run_jobs(settings: Settings) -> dict[str, int]:
     cipher = FieldCipher(settings.field_encryption_key)
     with SessionLocal() as db:
         try:
             ndr_reports = NdrMailboxProcessor(settings, cipher).process(db)
-        except Exception:
+        except Exception as exc:
             db.rollback()
+            logger.error(
+                "ndr_processing_failed",
+                extra={"error_class": type(exc).__name__},
+            )
             ndr_reports = 0
         provider = load_email_provider(db, settings, cipher)
         system_config = system_configuration(db)
