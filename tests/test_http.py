@@ -1091,7 +1091,6 @@ def test_admin_can_configure_and_test_smtp(monkeypatch):
             "port": "587",
             "username": "mailer",
             "password": "secret-password",
-            "starttls": "yes",
             "from_address": "relay@example.org",
             "from_name": "SilentRelay",
         }, follow_redirects=True)

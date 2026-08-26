@@ -129,7 +129,9 @@ domains redirect to the primary domain.
 3. Review the notification waiting period. The default is ten minutes.
 4. Review account creation, review intervals, reminders, and retention periods.
 5. Enter the SMTP server details. SMTP is configured only in this administration
-   page and has no `.env` fallback.
+   page and has no `.env` fallback. The server must support STARTTLS; use its
+   STARTTLS submission port, usually `587`. SilentRelay verifies the server
+   certificate and never authenticates or sends mail over plaintext SMTP.
 6. Test the SMTP connection.
 7. Send a test email.
 8. If the sender address is a dedicated technical mailbox, configure automatic

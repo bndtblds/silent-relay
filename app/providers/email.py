@@ -15,7 +15,6 @@ class EmailProviderConfig:
     port: int
     username: str
     password: str
-    starttls: bool
     from_address: str
     from_name: str
 
@@ -43,8 +42,7 @@ class EmailNotificationProvider:
         message.set_content(body)
         try:
             with smtplib.SMTP(self.config.host, self.config.port, timeout=15) as smtp:
-                if self.config.starttls:
-                    smtp.starttls(context=ssl.create_default_context())
+                smtp.starttls(context=ssl.create_default_context())
                 if self.config.username:
                     smtp.login(self.config.username, self.config.password)
                 smtp.send_message(

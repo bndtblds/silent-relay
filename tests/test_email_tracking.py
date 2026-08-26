@@ -93,7 +93,6 @@ def _configure_ndr(db, settings, cipher):
         port=587,
         username="notifications@example.org",
         password="smtp-secret",
-        starttls=True,
         from_address="notifications@example.org",
         from_name="SilentRelay",
     )
@@ -391,6 +390,9 @@ def test_smtp_visible_from_stays_stable_while_envelope_sender_is_correlated(
         def __exit__(self, *_):
             return None
 
+        def starttls(self, *, context):
+            captured["starttls"] = context.check_hostname
+
         def send_message(self, message, *, from_addr, to_addrs):
             captured.update(
                 visible_from=message["From"],
@@ -405,7 +407,6 @@ def test_smtp_visible_from_stays_stable_while_envelope_sender_is_correlated(
             port=25,
             username="",
             password="",
-            starttls=False,
             from_address="notifications@example.org",
             from_name="SilentRelay",
         ),
@@ -414,6 +415,7 @@ def test_smtp_visible_from_stays_stable_while_envelope_sender_is_correlated(
     assert provider.send(
         "recipient@example.net", "Subject", "Body", envelope_token=TOKEN
     ).successful
+    assert captured["starttls"] is True
     assert captured["visible_from"] == "SilentRelay <notifications@example.org>"
     assert captured["from_addr"] == f"notifications+{TOKEN}@example.org"
     assert captured["to_addrs"] == ["recipient@example.net"]

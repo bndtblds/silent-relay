@@ -191,7 +191,7 @@ def email_configuration(request: Request, db: Session = Depends(get_db), setting
     config = load_email_config(db, FieldCipher(settings.field_encryption_key))
     stored = db.get(SmtpConfiguration, "default")
     if config is None:
-        config = EmailProviderConfig("", 587, "", "", True, "", "SilentRelay")
+        config = EmailProviderConfig("", 587, "", "", "", "SilentRelay")
     cipher = FieldCipher(settings.field_encryption_key)
     ndr_config = load_ndr_config(db, settings, cipher)
     language = browser_language(request, settings.default_language)
@@ -370,7 +370,6 @@ def update_smtp(
     port: int = Form(...),
     username: str = Form(""),
     password: str = Form(""),
-    starttls: str | None = Form(None),
     from_address: str = Form(...),
     from_name: str = Form("SilentRelay"),
     csrf: str = Form(...),
@@ -386,7 +385,6 @@ def update_smtp(
             port=port,
             username=username,
             password=password or None,
-            starttls=starttls == "yes",
             from_address=from_address,
             from_name=from_name,
         )
