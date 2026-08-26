@@ -37,7 +37,7 @@ from app.providers.base import DeliveryResult
 from app.routers import admin, web
 from app.security.core import FieldCipher, hash_password, hash_pin, keyed_hash, verify_pin
 from app.security.core import SessionManager
-from app.services import AccountService, ManagementService, NotificationService
+from app.services import AccountService, ManagementService, NotificationService, audit
 from app.time import utc_now
 
 
@@ -106,6 +106,69 @@ def test_health_and_security_headers():
     assert response.headers["referrer-policy"] == "no-referrer"
     assert response.headers["x-frame-options"] == "DENY"
     assert "default-src 'self'" in response.headers["content-security-policy"]
+
+
+def test_audit_request_ids_are_isolated_between_requests():
+    def create_audit_event(event: str):
+        with Session(engine) as db:
+            audit(db, event)
+            db.commit()
+        return {"status": "ok"}
+
+    app.add_api_route("/_test/audit/{event}", create_audit_event, methods=["GET"])
+    try:
+        with TestClient(app) as client:
+            first = client.get("/_test/audit/request_a")
+            second = client.get("/_test/audit/request_b")
+
+        with Session(engine) as db:
+            first_audit = db.scalar(select(AuditLog).where(AuditLog.event_type == "request_a"))
+            second_audit = db.scalar(select(AuditLog).where(AuditLog.event_type == "request_b"))
+
+        assert first_audit is not None
+        assert second_audit is not None
+        assert first_audit.request_id == first.headers["X-Request-ID"]
+        assert second_audit.request_id == second.headers["X-Request-ID"]
+        assert first_audit.request_id != second_audit.request_id
+    finally:
+        app.router.routes.pop()
+
+
+def test_request_id_is_reset_after_request_exception():
+    def create_audit_then_fail():
+        with Session(engine) as db:
+            audit(db, "failed_request")
+            db.commit()
+        raise RuntimeError("expected test failure")
+
+    def create_audit_after_failure():
+        with Session(engine) as db:
+            audit(db, "request_after_failure")
+            db.commit()
+        return {"status": "ok"}
+
+    app.add_api_route("/_test/audit-failure", create_audit_then_fail, methods=["GET"])
+    app.add_api_route("/_test/audit-after-failure", create_audit_after_failure, methods=["GET"])
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            failed = client.get("/_test/audit-failure")
+            successful = client.get("/_test/audit-after-failure")
+
+        with Session(engine) as db:
+            failed_audit = db.scalar(select(AuditLog).where(AuditLog.event_type == "failed_request"))
+            successful_audit = db.scalar(select(AuditLog).where(
+                AuditLog.event_type == "request_after_failure"
+            ))
+
+        assert failed.status_code == 500
+        assert successful.status_code == 200
+        assert failed_audit is not None
+        assert successful_audit is not None
+        assert successful_audit.request_id == successful.headers["X-Request-ID"]
+        assert successful_audit.request_id != failed_audit.request_id
+    finally:
+        app.router.routes.pop()
+        app.router.routes.pop()
 
 
 def test_json_log_timestamp_is_utc_aware():

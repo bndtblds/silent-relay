@@ -22,6 +22,7 @@ from app.i18n import (
 from app.logging_config import configure_logging
 from app.routers import admin, web
 from app.rate_limit import PersistentRateLimiter, policy_for_path
+from app.request_context import reset_request_id, set_request_id
 
 settings = get_settings()
 templates = Jinja2Templates(directory="app/templates")
@@ -95,37 +96,41 @@ def error_response(request: Request, status_code: int, title_key: str, message_k
 @app.middleware("http")
 async def protection(request: Request, call_next):
     request_id = secrets.token_hex(16)
-    if request.method == "POST":
-        policy, subject = policy_for_path(request.url.path, settings)
-        peer = request.client.host if request.client else "unknown"
-        try:
-            with SessionLocal() as db:
-                decision = PersistentRateLimiter(settings).check(
-                    db, policy, peer, subject
-                )
-                db.commit()
-        except SQLAlchemyError:
-            logger.exception(
-                "rate_limit_store_unavailable", extra={"request_id": request_id}
-            )
-            return protected_response(
-                error_response(
-                    request, 503, "error.unavailable_title", "error.unavailable_message"
-                ),
-                request_id,
-            )
-        if not decision.allowed:
-            response = error_response(
-                request, 429, "error.rate_title", "error.rate_message"
-            )
-            response.headers["Retry-After"] = str(decision.retry_after_seconds)
-            return protected_response(response, request_id)
+    request_id_token = set_request_id(request_id)
     try:
-        response = await call_next(request)
-    except Exception:
-        logging.getLogger("silent_relay").exception("unhandled_request", extra={"request_id": request_id})
-        raise
-    return protected_response(response, request_id)
+        if request.method == "POST":
+            policy, subject = policy_for_path(request.url.path, settings)
+            peer = request.client.host if request.client else "unknown"
+            try:
+                with SessionLocal() as db:
+                    decision = PersistentRateLimiter(settings).check(
+                        db, policy, peer, subject
+                    )
+                    db.commit()
+            except SQLAlchemyError:
+                logger.exception(
+                    "rate_limit_store_unavailable", extra={"request_id": request_id}
+                )
+                return protected_response(
+                    error_response(
+                        request, 503, "error.unavailable_title", "error.unavailable_message"
+                    ),
+                    request_id,
+                )
+            if not decision.allowed:
+                response = error_response(
+                    request, 429, "error.rate_title", "error.rate_message"
+                )
+                response.headers["Retry-After"] = str(decision.retry_after_seconds)
+                return protected_response(response, request_id)
+        try:
+            response = await call_next(request)
+        except Exception:
+            logging.getLogger("silent_relay").exception("unhandled_request", extra={"request_id": request_id})
+            raise
+        return protected_response(response, request_id)
+    finally:
+        reset_request_id(request_id_token)
 
 
 @app.get("/health/live")

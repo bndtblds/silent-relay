@@ -18,6 +18,7 @@ from app.models import (
     ServerSession, Submission, TrustedPerson, TrustedPersonToken,
 )
 from app.providers.base import NotificationProvider
+from app.request_context import current_request_id
 from app.security.core import (
     FieldCipher, SessionManager, fingerprint, generate_token, hash_password,
     hash_pin, keyed_hash, verify_password, verify_pin,
@@ -28,7 +29,12 @@ from app.time import utc_now
 
 def audit(db: Session, event: str, account_id: str | None = None, **metadata: object) -> None:
     allowed = {key: value for key, value in metadata.items() if key in {"provider", "error_class", "count"}}
-    db.add(AuditLog(account_id=account_id, event_type=event, technical_metadata=json.dumps(allowed)))
+    db.add(AuditLog(
+        account_id=account_id,
+        event_type=event,
+        technical_metadata=json.dumps(allowed),
+        request_id=current_request_id(),
+    ))
 
 
 class AccountService:

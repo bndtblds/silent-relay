@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.database import Base
 from app.models import (
-    Account, AccountReview, AccountStatus, ContactMethod, ContactReview,
+    Account, AccountReview, AccountStatus, AuditLog, ContactMethod, ContactReview,
     ContactReviewToken, Delivery, DeliveryStatus, Notification,
     NotificationRecipient, NotificationStatus, Partner, PartnerCredential,
     ReviewReminder, ServerSession, Submission, SystemConfiguration,
@@ -20,12 +20,22 @@ from app.providers.base import DeliveryResult
 from app.security.core import SessionManager, hash_password, hash_pin, keyed_hash, verify_pin
 from app.services import (
     AccountService, AuthenticationService, DeliveryService, LifecycleService,
-    ManagementService, NotificationService,
+    ManagementService, NotificationService, audit,
 )
 from app.time import utc_now
 
 
 _ManagementService = ManagementService
+
+
+def test_audit_without_http_request_has_no_request_id(db):
+    audit(db, "scheduler_event")
+    db.commit()
+
+    event = db.scalar(select(AuditLog).where(AuditLog.event_type == "scheduler_event"))
+
+    assert event is not None
+    assert event.request_id is None
 
 
 class ManagementService(_ManagementService):
