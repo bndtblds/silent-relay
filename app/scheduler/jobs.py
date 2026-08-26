@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 
 from app.config import Settings
 from app.database import SessionLocal
@@ -23,6 +23,7 @@ from app.time import utc_now
 
 
 logger = logging.getLogger("silent_relay")
+REVIEW_REMINDER_PROCESSING_LEASE = timedelta(minutes=10)
 
 
 def run_jobs(settings: Settings) -> dict[str, int]:
@@ -43,20 +44,30 @@ def run_jobs(settings: Settings) -> dict[str, int]:
             settings, cipher, {"email": provider}
         ).process_due(db)
         now = utc_now()
-        reminders = 0
-        due = list(db.scalars(select(ReviewReminder).where(
+        reminder_ids = list(db.scalars(select(ReviewReminder.id).where(
             ReviewReminder.sent_at.is_(None),
             ReviewReminder.scheduled_at <= now,
+            or_(
+                ReviewReminder.processing_until.is_(None),
+                ReviewReminder.processing_until <= now,
+            ),
         )))
-        for reminder in due:
+        db.rollback()
+        reminders = 0
+        for reminder_id in reminder_ids:
+            reminder = _claim_review_reminder(db, reminder_id, now)
+            if reminder is None:
+                continue
             review = db.get(AccountReview, reminder.account_review_id)
             if not review or review.confirmed_at:
                 reminder.sent_at = now
+                _clear_review_reminder_lease(reminder)
                 db.commit()
                 continue
             account = db.get(Account, review.account_id)
             if not account:
                 reminder.sent_at = now
+                _clear_review_reminder_lease(reminder)
                 db.commit()
                 continue
             language = account.language_code
@@ -165,6 +176,7 @@ def run_jobs(settings: Settings) -> dict[str, int]:
             if owner_reminders_sent and confirmations_sent:
                 reminder.sent_at = now
                 reminders += 1
+            _clear_review_reminder_lease(reminder)
             db.commit()
 
         contact_problem_reminders = _send_contact_problem_reminders(
@@ -191,6 +203,36 @@ def run_jobs(settings: Settings) -> dict[str, int]:
         "sessions": sessions,
         "rate_limit_buckets": rate_limit_buckets,
     }
+
+
+def _claim_review_reminder(
+    db, reminder_id: str, now: datetime
+) -> ReviewReminder | None:
+    claimed = db.execute(
+        update(ReviewReminder)
+        .where(
+            ReviewReminder.id == reminder_id,
+            ReviewReminder.sent_at.is_(None),
+            ReviewReminder.scheduled_at <= now,
+            or_(
+                ReviewReminder.processing_until.is_(None),
+                ReviewReminder.processing_until <= now,
+            ),
+        )
+        .values(
+            processing_started_at=now,
+            processing_until=now + REVIEW_REMINDER_PROCESSING_LEASE,
+        )
+    )
+    db.commit()
+    if claimed.rowcount != 1:
+        return None
+    return db.get(ReviewReminder, reminder_id)
+
+
+def _clear_review_reminder_lease(reminder: ReviewReminder) -> None:
+    reminder.processing_started_at = None
+    reminder.processing_until = None
 
 
 def _ensure_contact_reviews(

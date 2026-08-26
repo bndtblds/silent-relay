@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    Account,
     AccountReview,
     ContactMethod,
     ContactReview,
@@ -43,6 +44,28 @@ class RecordingProvider:
         self.sent.append((recipient, subject))
         self.messages.append((recipient, subject, body))
         return DeliveryResult(True)
+
+
+def _create_due_review_reminder(engine) -> str:
+    Base.metadata.create_all(engine)
+    with Session(engine, expire_on_commit=False) as session:
+        account = Account(encrypted_owner_name=None)
+        session.add(account)
+        session.flush()
+        review = AccountReview(
+            account_id=account.id,
+            review_due_at=utc_now() - timedelta(days=1),
+        )
+        session.add(review)
+        session.flush()
+        reminder = ReviewReminder(
+            account_review_id=review.id,
+            relative_day=0,
+            scheduled_at=utc_now() - timedelta(seconds=1),
+        )
+        session.add(reminder)
+        session.commit()
+        return reminder.id
 
 
 def test_scheduler_process_configures_shared_logging(settings, monkeypatch):
@@ -196,6 +219,102 @@ def test_review_reminder_is_not_sent_twice(db, settings, cipher, monkeypatch):
         ("owner@example.org", "SilentRelay: Regelmäßige Kontoprüfung")
     ]
     assert "/account/" not in RecordingProvider.messages[0][2]
+
+
+def test_two_database_sessions_cannot_claim_same_review_reminder(
+    tmp_path,
+):
+    engine = create_engine(
+        f"sqlite:///{(tmp_path / 'claims.db').as_posix()}",
+        connect_args={"check_same_thread": False},
+    )
+    reminder_id = _create_due_review_reminder(engine)
+    now = utc_now()
+    barrier = threading.Barrier(2)
+    claims = []
+
+    def claim() -> None:
+        with Session(engine, expire_on_commit=False) as session:
+            barrier.wait()
+            claims.append(
+                jobs._claim_review_reminder(session, reminder_id, now) is not None
+            )
+
+    workers = [threading.Thread(target=claim) for _ in range(2)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+
+    assert sorted(claims) == [False, True]
+    with Session(engine) as session:
+        reminder = session.get(ReviewReminder, reminder_id)
+        assert reminder.processing_started_at == now
+        assert reminder.processing_until == (
+            now + jobs.REVIEW_REMINDER_PROCESSING_LEASE
+        )
+    engine.dispose()
+
+
+def test_review_reminder_lease_recovery_has_exactly_one_new_owner(tmp_path):
+    engine = create_engine(
+        f"sqlite:///{(tmp_path / 'recovery.db').as_posix()}",
+        connect_args={"check_same_thread": False},
+    )
+    reminder_id = _create_due_review_reminder(engine)
+    initial_now = utc_now()
+    with Session(engine, expire_on_commit=False) as first_session:
+        assert jobs._claim_review_reminder(
+            first_session, reminder_id, initial_now
+        ) is not None
+
+    with Session(engine, expire_on_commit=False) as fresh_session:
+        assert jobs._claim_review_reminder(
+            fresh_session, reminder_id, initial_now + timedelta(minutes=1)
+        ) is None
+
+    recovery_now = initial_now + jobs.REVIEW_REMINDER_PROCESSING_LEASE
+    with Session(engine, expire_on_commit=False) as first_recovery_session:
+        recovered = jobs._claim_review_reminder(
+            first_recovery_session, reminder_id, recovery_now
+        )
+        assert recovered is not None
+    with Session(engine, expire_on_commit=False) as second_recovery_session:
+        assert jobs._claim_review_reminder(
+            second_recovery_session, reminder_id, recovery_now
+        ) is None
+    engine.dispose()
+
+
+def test_completed_review_reminder_cannot_be_claimed_again(tmp_path):
+    engine = create_engine(
+        f"sqlite:///{(tmp_path / 'completed-claim.db').as_posix()}",
+        connect_args={"check_same_thread": False},
+    )
+    reminder_id = _create_due_review_reminder(engine)
+    now = utc_now()
+    with Session(engine, expire_on_commit=False) as first_session:
+        reminder = jobs._claim_review_reminder(first_session, reminder_id, now)
+        assert reminder is not None
+
+    with Session(engine, expire_on_commit=False) as second_session:
+        assert jobs._claim_review_reminder(
+            second_session, reminder_id, now + timedelta(minutes=1)
+        ) is None
+
+    with Session(engine, expire_on_commit=False) as first_session:
+        reminder = first_session.get(ReviewReminder, reminder_id)
+        reminder.sent_at = now + timedelta(minutes=2)
+        jobs._clear_review_reminder_lease(reminder)
+        first_session.commit()
+
+    with Session(engine, expire_on_commit=False) as later_session:
+        assert jobs._claim_review_reminder(
+            later_session,
+            reminder_id,
+            now + jobs.REVIEW_REMINDER_PROCESSING_LEASE + timedelta(minutes=1),
+        ) is None
+    engine.dispose()
 
 
 def test_review_reminder_retries_only_temporarily_failed_recipient(

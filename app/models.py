@@ -253,6 +253,8 @@ class ReviewReminder(Base):
     relative_day: Mapped[int] = mapped_column(Integer)
     scheduled_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    processing_started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    processing_until: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
     __table_args__ = (UniqueConstraint("account_review_id", "relative_day"),)
 
 
