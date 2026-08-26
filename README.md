@@ -129,7 +129,8 @@ docker compose version
 
 4. Open `https://your-domain.example/admin/login` and sign in.
 5. Review the operational and retention settings, then configure and test SMTP
-   under system settings. SMTP is stored only in the application database.
+   under system settings. SMTP is stored only in the application database and
+   requires STARTTLS with certificate verification, usually on port `587`.
    Optionally enable automatic
    delivery-failure detection for the same dedicated technical mailbox.
 6. Add the deployment's imprint, privacy information, and public contact

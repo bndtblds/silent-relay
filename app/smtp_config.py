@@ -32,7 +32,6 @@ def load_email_config(db: Session, cipher: FieldCipher) -> EmailProviderConfig |
         port=stored.port,
         username=cipher.decrypt(stored.encrypted_username),
         password=cipher.decrypt(stored.encrypted_password),
-        starttls=stored.starttls,
         from_address=cipher.decrypt(stored.encrypted_from_address),
         from_name=cipher.decrypt(stored.encrypted_from_name),
     )
@@ -50,7 +49,6 @@ def save_email_config(
     port: int,
     username: str,
     password: str | None,
-    starttls: bool,
     from_address: str,
     from_name: str,
 ) -> SmtpConfiguration:
@@ -72,7 +70,7 @@ def save_email_config(
             port=port,
             encrypted_username=cipher.encrypt(username) if username else None,
             encrypted_password=cipher.encrypt(password) if password else None,
-            starttls=starttls,
+            starttls=True,
             encrypted_from_address=cipher.encrypt(from_address),
             encrypted_from_name=cipher.encrypt(from_name or "SilentRelay"),
         )
@@ -87,7 +85,7 @@ def save_email_config(
         stored.encrypted_username = cipher.encrypt(username) if username else None
         if password is not None and password != "":
             stored.encrypted_password = cipher.encrypt(password)
-        stored.starttls = starttls
+        stored.starttls = True
         stored.encrypted_from_address = cipher.encrypt(from_address)
         stored.encrypted_from_name = cipher.encrypt(from_name or "SilentRelay")
     db.commit()
@@ -188,7 +186,6 @@ def test_imap_connection(config: ImapNdrConfig) -> int:
 
 def test_smtp_connection(config: EmailProviderConfig) -> None:
     with smtplib.SMTP(config.host, config.port, timeout=15) as smtp:
-        if config.starttls:
-            smtp.starttls(context=ssl.create_default_context())
+        smtp.starttls(context=ssl.create_default_context())
         if config.username:
             smtp.login(config.username, config.password)

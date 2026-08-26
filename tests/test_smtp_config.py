@@ -5,6 +5,7 @@ from app.smtp_config import (
     save_email_config,
     save_ndr_config,
     test_imap_connection as check_imap_connection,
+    test_smtp_connection as check_smtp_connection,
 )
 
 
@@ -16,7 +17,6 @@ def test_smtp_configuration_is_encrypted_and_loadable(db, settings, cipher):
         port=587,
         username="mailer",
         password="smtp-secret",
-        starttls=True,
         from_address="relay@example.org",
         from_name="SilentRelay",
     )
@@ -42,18 +42,19 @@ def test_smtp_configuration_is_encrypted_and_loadable(db, settings, cipher):
 def test_blank_password_preserves_existing_secret(db, settings, cipher):
     save_email_config(
         db, cipher, host="smtp.example.org", port=587, username="mailer",
-        password="existing-secret", starttls=True,
+        password="existing-secret",
         from_address="relay@example.org", from_name="SilentRelay",
     )
     save_email_config(
-        db, cipher, host="smtp2.example.org", port=465, username="mailer",
-        password=None, starttls=False,
+        db, cipher, host="smtp2.example.org", port=587, username="mailer",
+        password=None,
         from_address="relay@example.org", from_name="SilentRelay",
     )
     loaded = load_email_config(db, cipher)
     assert loaded is not None
     assert loaded.host == "smtp2.example.org"
     assert loaded.password == "existing-secret"
+    assert db.get(SmtpConfiguration, "default").starttls is True
 
 
 def test_ndr_configuration_requires_exact_sender_acknowledgement(
@@ -61,7 +62,7 @@ def test_ndr_configuration_requires_exact_sender_acknowledgement(
 ):
     save_email_config(
         db, cipher, host="smtp.example.org", port=587, username="mailer",
-        password="smtp-secret", starttls=True,
+        password="smtp-secret",
         from_address="notifications@example.org", from_name="SilentRelay",
     )
     try:
@@ -86,7 +87,7 @@ def test_ndr_configuration_requires_exact_sender_acknowledgement(
 
     save_email_config(
         db, cipher, host="smtp.example.org", port=587, username="mailer",
-        password=None, starttls=True,
+        password=None,
         from_address="changed@example.org", from_name="SilentRelay",
     )
     assert load_ndr_config(db, settings, cipher) is None
@@ -123,3 +124,39 @@ def test_imap_connection_check_opens_inbox_read_only(monkeypatch):
     )
     assert count == 7
     assert calls[-1] == ("select", "INBOX", True)
+
+
+def test_smtp_connection_requires_starttls_before_login(monkeypatch):
+    calls = []
+
+    class FakeSmtp:
+        def __init__(self, host, port, timeout):
+            calls.append(("connect", host, port, timeout))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return None
+
+        def starttls(self, *, context):
+            calls.append(("starttls", context.check_hostname))
+
+        def login(self, username, password):
+            calls.append(("login", username, password))
+
+    monkeypatch.setattr("app.smtp_config.smtplib.SMTP", FakeSmtp)
+    from app.providers.email import EmailProviderConfig
+
+    check_smtp_connection(
+        EmailProviderConfig(
+            "smtp.example.org", 587, "mailer", "secret",
+            "relay@example.org", "SilentRelay",
+        )
+    )
+
+    assert calls == [
+        ("connect", "smtp.example.org", 587, 15),
+        ("starttls", True),
+        ("login", "mailer", "secret"),
+    ]
