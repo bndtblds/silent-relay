@@ -21,6 +21,8 @@ jobs:
     name: Complete test suite
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      VERSION_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^' }}
 
     steps:
       - name: Check out repository

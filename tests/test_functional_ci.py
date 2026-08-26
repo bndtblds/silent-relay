@@ -15,6 +15,9 @@ def test_functional_workflow_runs_the_complete_locked_suite():
     assert 'tags:\n      - "v*"' in workflow
     assert "permissions:\n  contents: read" in workflow
     assert "fetch-depth: 0" in workflow
+    assert "VERSION_BASE_REF:" in workflow
+    assert "github.event.pull_request.base.sha" in workflow
+    assert "|| 'HEAD^'" in workflow
     assert "uv sync --locked --extra test" in workflow
     assert "uv run pytest" in workflow
     assert "tests/" not in workflow

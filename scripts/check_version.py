@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -123,21 +124,44 @@ def validate_release_tags(
             )
 
 
-def check_repository_version() -> str:
+def _version_at(reference: str) -> str:
+    result = _git("show", f"{reference}:app/version.py", check=False)
+    if result.returncode != 0:
+        raise VersionCheckError(f"Could not read a version from {reference}")
+    return version_from_source(result.stdout)
+
+
+def _comparison_reference() -> str:
+    configured = os.environ.get("VERSION_BASE_REF")
+    if configured:
+        return configured
+    branch = _git("branch", "--show-current").stdout.strip()
+    status = _git("status", "--porcelain", "--untracked-files=normal").stdout
+    return "HEAD^" if branch == "main" and not status.strip() else "origin/main"
+
+
+def check_repository_version(reference: str | None = None) -> tuple[str, str]:
     current_value = version_from_source(VERSION_FILE.read_text(encoding="utf-8"))
+    comparison_reference = reference or _comparison_reference()
+    previous_value = _version_at(comparison_reference)
+    if not is_newer(parse_version(current_value), parse_version(previous_value)):
+        raise VersionCheckError(
+            f"Version {current_value} must be newer than {previous_value} "
+            f"({comparison_reference})"
+        )
     tags_at_head = _git("tag", "--points-at", "HEAD").stdout.splitlines()
     repository_tags = _git("tag", "--list", "v*").stdout.splitlines()
     validate_release_tags(current_value, tags_at_head, repository_tags)
-    return current_value
+    return current_value, previous_value
 
 
 def main() -> int:
     try:
-        current = check_repository_version()
+        current, previous = check_repository_version()
     except (OSError, subprocess.SubprocessError, VersionCheckError) as exc:
         print(f"Version check failed: {exc}", file=sys.stderr)
         return 1
-    print(f"Version check passed: {current}")
+    print(f"Version check passed: {previous} -> {current}")
     return 0
 
 

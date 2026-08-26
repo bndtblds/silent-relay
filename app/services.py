@@ -626,17 +626,31 @@ class NotificationService:
         db.commit()
         return raw
 
-    def accept(self, db: Session, submission_token: str) -> Notification:
-        submission = db.get(Submission, keyed_hash(submission_token, self.settings.token_hmac_key))
-        if not submission or submission.consumed_at or submission.expires_at <= utc_now():
-            raise LookupError
-        person = db.get(TrustedPerson, submission.trusted_person_id)
+    def accept(
+        self, db: Session, submission_token: str, expected_person_id: str
+    ) -> Notification:
+        person = db.get(TrustedPerson, expected_person_id)
         account = db.get(Account, person.account_id) if person else None
-        if not person or not account or account.status not in {AccountStatus.active, AccountStatus.overdue}:
+        if not person or not account or account.status not in {
+            AccountStatus.active, AccountStatus.overdue
+        }:
             raise LookupError
+        submission_id = keyed_hash(submission_token, self.settings.token_hmac_key)
+        now = utc_now()
+        consumed = db.execute(
+            update(Submission).where(
+                Submission.id_hash == submission_id,
+                Submission.trusted_person_id == expected_person_id,
+                Submission.consumed_at.is_(None),
+                Submission.expires_at > now,
+            ).values(consumed_at=now)
+        )
+        if consumed.rowcount != 1:
+            db.rollback()
+            raise LookupError
+        submission = db.get(Submission, submission_id)
         message = self.cipher.decrypt(submission.encrypted_message)
         digest = keyed_hash(message, self.settings.fingerprint_hmac_key)
-        now = utc_now()
         config = system_configuration(db)
         release_at = now + timedelta(minutes=config.notification_delay_minutes)
         notification = Notification(
@@ -648,7 +662,6 @@ class NotificationService:
         )
         db.add(notification)
         db.flush()
-        submission.consumed_at = now
         audit(db, "notification_accepted", account.id)
         db.commit()
         if release_at <= utc_now():

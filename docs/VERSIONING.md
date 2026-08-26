@@ -10,19 +10,18 @@ The Python package metadata is generated from it. Generated metadata such as
 `uv.lock` must be refreshed after changing the canonical version; it is not an
 independent version source.
 
-The canonical version describes a release, not an individual development
-commit. Several commits and pull requests may therefore retain the same
-version. Change it deliberately when preparing a release, using:
+The version on `main` identifies the current SilentRelay release. Every pull
+request merged into `main` advances it exactly once, using:
 
 - `PATCH` for backward-compatible fixes and documentation-only changes;
 - `MINOR` for backward-compatible features; and
 - `MAJOR` for incompatible public behavior or contracts.
 
-Do not add a fourth numeric component. Git commit identifiers, CI run IDs, and
-container image digests are build identities and remain separate from the
-product version. Where a combined display value is useful, SemVer build
-metadata such as `1.3.8+git.19f0f54` may be derived without changing the
-canonical source or version precedence.
+Commits within one pull request may share its target version. Fixing or
+refining that pull request therefore does not consume more versions. The
+squash merge creates one `main` commit with one new version. Do not add a
+fourth numeric component; Git commit identifiers, CI run IDs, and container
+image digests remain separate build identities.
 
 Run the repository check before committing:
 
@@ -30,14 +29,16 @@ Run the repository check before committing:
 uv run python scripts/check_version.py
 ```
 
-The check always validates Semantic Versioning. Ordinary commits do not need
-to advance it. On a `v<version>` release tag, the check additionally requires
-the tag to match the canonical version exactly and the release version to be
-newer than every other release tag in the repository.
+The check validates Semantic Versioning and compares the pull request version
+with its target branch. It must be newer once, regardless of how many commits
+the pull request contains. On a push to `main`, CI compares the squash commit
+with its first parent. A `v<version>` tag must additionally match the canonical
+version exactly and be newer than every other release tag.
 
 ## Releases
 
-A release tag is immutable, annotated, and named `v<version>`, for example
+A release tag may be used as an immutable marker for a `main` version. It is
+annotated and named `v<version>`, for example
 `v1.1.0`. It must point to a commit whose canonical version is exactly the tag
 version. Moving or reusing a published tag is not allowed. Release notes state
 the tag and full commit identifier. Container images use the same version and

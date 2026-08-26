@@ -20,10 +20,14 @@ from app.models import (
     ContactMethod,
     ContactReview,
     ContactReviewToken,
+    Delivery,
+    Notification,
+    NotificationRecipient,
     Partner,
     PublicSiteContent,
     SmtpConfiguration,
     SystemConfiguration,
+    Submission,
     TrustedPerson,
     TrustedPersonToken,
     ServerSession,
@@ -32,7 +36,7 @@ from app.providers.base import DeliveryResult
 from app.routers import admin, web
 from app.security.core import FieldCipher, hash_password, hash_pin, keyed_hash, verify_pin
 from app.security.core import SessionManager
-from app.services import AccountService, ManagementService
+from app.services import AccountService, ManagementService, NotificationService
 from app.time import utc_now
 
 
@@ -468,6 +472,65 @@ def test_trusted_access_requires_timely_pin_setup_and_locks_repeated_failures():
     with Session(engine) as db:
         record = db.get(TrustedPersonToken, person.id)
         assert record.locked_until > utc_now()
+
+
+def test_trusted_person_cannot_confirm_another_persons_submission():
+    settings = get_settings()
+    cipher = FieldCipher(settings.field_encryption_key)
+    with Session(engine, expire_on_commit=False) as db:
+        accounts = AccountService(settings, cipher)
+        account, _, setup_token = accounts.create(db)
+        _, verification_token = accounts.setup(
+            db, setup_token, "correct horse battery staple", "owner@example.org"
+        )
+        accounts.verify_contact(db, verification_token)
+        management = ManagementService(settings, cipher)
+        person_a, token_a = management.add_trusted_person(
+            db, account.id, "account", account.id, "Trusted A"
+        )
+        person_b, token_b = management.add_trusted_person(
+            db, account.id, "account", account.id, "Trusted B"
+        )
+        for person in (person_a, person_b):
+            record = db.get(TrustedPersonToken, person.id)
+            record.pin_hash = hash_pin("472915")
+            record.enrolled_at = utc_now()
+        db.commit()
+        notifications = NotificationService(settings, cipher)
+        submission_token = notifications.stage(
+            db,
+            notifications.resolve_person(db, token_a),
+            "A sufficiently long private message.",
+        )
+        submission_id = keyed_hash(submission_token, settings.token_hmac_key)
+
+    path_b = f"/notify/{token_b}"
+    with TestClient(app) as client:
+        login_form = client.get(path_b)
+        logged_in = client.post(
+            f"{path_b}/login",
+            data={"csrf": hidden_value(login_form.text, "csrf"), "pin": "472915"},
+            follow_redirects=True,
+        )
+        csrf = hidden_value(logged_in.text, "csrf")
+        foreign = client.post(
+            f"{path_b}/confirm",
+            data={"csrf": csrf, "submission": submission_token},
+        )
+        absent = client.post(
+            f"{path_b}/confirm",
+            data={"csrf": csrf, "submission": "not-a-submission"},
+        )
+
+    assert foreign.status_code == absent.status_code == 409
+    assert foreign.text == absent.text
+    with Session(engine) as db:
+        submission = db.get(Submission, submission_id)
+        assert submission.trusted_person_id == person_a.id
+        assert submission.consumed_at is None
+        assert db.scalar(select(func.count()).select_from(Notification)) == 0
+        assert db.scalar(select(func.count()).select_from(NotificationRecipient)) == 0
+        assert db.scalar(select(func.count()).select_from(Delivery)) == 0
 
 
 def test_trusted_person_can_change_pin_and_live_match_check_is_available():

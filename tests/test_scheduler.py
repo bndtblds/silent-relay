@@ -248,13 +248,15 @@ def test_scheduler_does_not_retry_delivery_after_authorization_is_revoked(
         db, account.id, "partner", origin.id, ""
     )
     notifications = NotificationService(settings, cipher)
+    person = notifications.resolve_person(db, trusted_token)
     notification = notifications.accept(
         db,
         notifications.stage(
             db,
-            notifications.resolve_person(db, trusted_token),
+            person,
             "A sufficiently long confidential message.",
         ),
+        person.id,
     )
     contact = db.scalar(select(ContactMethod).where(
         ContactMethod.owner_type == "account",
@@ -308,13 +310,15 @@ def test_overlapping_scheduler_run_cannot_take_valid_claim(
             setup_db, account.id, "partner", origin.id, ""
         )
         notifications = NotificationService(settings, cipher)
+        person = notifications.resolve_person(setup_db, token)
         notifications.accept(
             setup_db,
             notifications.stage(
                 setup_db,
-                notifications.resolve_person(setup_db, token),
+                person,
                 "A sufficiently long confidential message.",
             ),
+            person.id,
         )
 
     entered_provider = threading.Event()
