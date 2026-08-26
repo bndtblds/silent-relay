@@ -82,6 +82,14 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
             for index in reminder_delivery_indexes
             if index[2] == 1
         }
+        reminder_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(review_reminders)")
+        }
+        reminder_indexes = {
+            row[1]
+            for row in connection.execute("PRAGMA index_list(review_reminders)")
+        }
     assert "public_site_contents" in tables
     assert "email_delivery_tracking" in tables
     assert "language_code" in account_columns
@@ -107,6 +115,8 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert (
         "review_reminder_id", "contact_method_id"
     ) in reminder_delivery_unique_indexes
+    assert {"processing_started_at", "processing_until"} <= reminder_columns
+    assert "ix_review_reminders_processing_until" in reminder_indexes
     assert {"token_hash", "password_hash", "enrollment_expires_at"} <= partner_credential_columns
     assert "system_configurations" in tables
     assert "release_at" in notification_columns
@@ -117,7 +127,7 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert system_configuration_columns["account_review_interval_days"] == "'180'"
     assert "message_retention_hours" not in system_configuration_columns
     assert system_configuration_columns["message_retention_days"] == "'30'"
-    assert revision == "0012"
+    assert revision == "0013"
 
 
 def test_published_0009_database_receives_operational_configuration(
@@ -172,7 +182,7 @@ def test_published_0009_database_receives_operational_configuration(
     assert "message_retention_hours" not in columns
     assert "message_retention_days" in columns
     assert stored == (75, 1, 180, 30)
-    assert revision == "0012"
+    assert revision == "0013"
 
 
 def test_previous_alembic_head_upgrades_to_protected_inbox_schema(
@@ -217,7 +227,7 @@ def test_previous_alembic_head_upgrades_to_protected_inbox_schema(
         migrated_credential = connection.execute(
             "SELECT partner_id FROM partner_credentials WHERE partner_id = 'migrated-partner'"
         ).fetchone()
-    assert revision == "0012"
+    assert revision == "0013"
     assert {"partner_credentials", "notification_recipients"} <= tables
     assert migrated_partner == ("migrated-account", 1)
     assert migrated_credential is None
