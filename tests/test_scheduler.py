@@ -254,6 +254,51 @@ def test_review_reminder_retries_only_temporarily_failed_recipient(
     assert statuses == {ReviewReminderDeliveryStatus.successful}
 
 
+def test_permanent_review_reminder_failure_is_terminal(
+    db, settings, cipher, monkeypatch
+):
+    service = AccountService(settings, cipher)
+    _, _, setup = service.create(db)
+    _, verification = service.setup(
+        db, setup, "correct horse battery staple", "owner@example.org"
+    )
+    service.verify_contact(db, verification)
+    reminder = db.scalar(select(ReviewReminder).order_by(ReviewReminder.scheduled_at))
+    reminder.scheduled_at = utc_now() - timedelta(seconds=1)
+    db.commit()
+
+    class PermanentlyFailingProvider(RecordingProvider):
+        attempts = []
+
+        def send(self, recipient, subject, body, *, envelope_token=None):
+            self.attempts.append(recipient)
+            return DeliveryResult(
+                False,
+                permanent_failure=True,
+                error_class="recipient_rejected",
+            )
+
+    monkeypatch.setattr(
+        jobs,
+        "load_email_provider",
+        lambda db, settings, cipher: PermanentlyFailingProvider(settings),
+    )
+    monkeypatch.setattr(
+        jobs, "SessionLocal", lambda: Session(db.get_bind(), expire_on_commit=False)
+    )
+
+    first_run = jobs.run_jobs(settings)
+    second_run = jobs.run_jobs(settings)
+    db.refresh(reminder)
+    delivery = db.scalar(select(ReviewReminderDelivery))
+
+    assert first_run["reminders"] == 1
+    assert second_run["reminders"] == 0
+    assert reminder.sent_at is not None
+    assert delivery.status == ReviewReminderDeliveryStatus.permanent_failure
+    assert PermanentlyFailingProvider.attempts == ["owner@example.org"]
+
+
 def test_pending_review_reminder_delivery_is_cancelled_for_disabled_contact(
     db, settings, cipher, monkeypatch
 ):

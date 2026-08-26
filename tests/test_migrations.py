@@ -72,6 +72,16 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
         reminder_delivery_indexes = list(connection.execute(
             "PRAGMA index_list(review_reminder_deliveries)"
         ))
+        reminder_delivery_unique_indexes = {
+            tuple(
+                row[2]
+                for row in connection.execute(
+                    f"PRAGMA index_info('{index[1]}')"
+                )
+            )
+            for index in reminder_delivery_indexes
+            if index[2] == 1
+        }
     assert "public_site_contents" in tables
     assert "email_delivery_tracking" in tables
     assert "language_code" in account_columns
@@ -94,7 +104,9 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert {
         "review_reminder_id", "contact_method_id", "status", "last_attempt_at"
     } <= reminder_delivery_columns
-    assert any(index[2] == 1 for index in reminder_delivery_indexes)
+    assert (
+        "review_reminder_id", "contact_method_id"
+    ) in reminder_delivery_unique_indexes
     assert {"token_hash", "password_hash", "enrollment_expires_at"} <= partner_credential_columns
     assert "system_configurations" in tables
     assert "release_at" in notification_columns
