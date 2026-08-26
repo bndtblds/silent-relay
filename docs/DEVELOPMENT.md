@@ -262,6 +262,17 @@ expired-lease, and migration tests when changing this code. SMTP can still
 produce a duplicate after acceptance followed by a crash; ADR 0013 remains the
 authoritative limitation.
 
+The crash-after-SMTP regression test injects process failure only in the test,
+immediately after a successful provider result and before the local success
+commit. It must prove that the committed claim prevents another provider call
+while its lease is live, that recovery after lease expiry repeats the complete
+send-time authorization path, and that the second attempt can finish normally.
+Both provider calls must receive exactly the localized neutral notice and no
+confidential message text, names, relationships, roles, recipient count, secret
+access data, or other message context. This test protects the deliberately
+accepted at-least-once boundary; it does not establish or imply SMTP
+exactly-once delivery.
+
 Queue tests must cover the default and configured delay, unchanged release
 times after configuration changes, no provider call before release, delivery
 at or after release, cancellation by the matching trusted person, rejection at
