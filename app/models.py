@@ -42,6 +42,13 @@ class DeliveryStatus(str, enum.Enum):
     cancelled = "cancelled"
 
 
+class ReviewReminderDeliveryStatus(str, enum.Enum):
+    pending = "pending"
+    successful = "successful"
+    permanent_failure = "permanent_failure"
+    cancelled = "cancelled"
+
+
 class Account(Base):
     __tablename__ = "accounts"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid7_str)
@@ -247,6 +254,26 @@ class ReviewReminder(Base):
     scheduled_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     __table_args__ = (UniqueConstraint("account_review_id", "relative_day"),)
+
+
+class ReviewReminderDelivery(Base):
+    __tablename__ = "review_reminder_deliveries"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid7_str)
+    review_reminder_id: Mapped[str] = mapped_column(
+        ForeignKey("review_reminders.id", ondelete="CASCADE"), index=True
+    )
+    contact_method_id: Mapped[str] = mapped_column(
+        ForeignKey("contact_methods.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[ReviewReminderDeliveryStatus] = mapped_column(
+        Enum(ReviewReminderDeliveryStatus),
+        default=ReviewReminderDeliveryStatus.pending,
+    )
+    last_attempt_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
+    __table_args__ = (
+        UniqueConstraint("review_reminder_id", "contact_method_id"),
+    )
 
 
 class ContactReview(Base):

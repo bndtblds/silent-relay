@@ -11,7 +11,8 @@ from app.email_tracking import NdrMailboxProcessor, send_tracked_email
 from app.i18n import email_body, format_date, translate
 from app.models import (
     Account, AccountReview, ContactMethod, ContactReview, ContactReviewToken,
-    Partner, PartnerCredential, ReviewReminder, TrustedPerson, TrustedPersonToken,
+    Partner, PartnerCredential, ReviewReminder, ReviewReminderDelivery,
+    ReviewReminderDeliveryStatus, TrustedPerson, TrustedPersonToken,
 )
 from app.rate_limit import purge_expired_rate_limits
 from app.security.core import FieldCipher, SessionManager, generate_token, keyed_hash
@@ -107,8 +108,34 @@ def run_jobs(settings: Settings) -> dict[str, int]:
                 ContactMethod.is_verified.is_(True),
                 ContactMethod.is_active.is_(True),
             )))
-            owner_reminders_sent = bool(owner_contacts)
+            owner_contacts_by_id = {contact.id: contact for contact in owner_contacts}
+            reminder_deliveries = list(db.scalars(
+                select(ReviewReminderDelivery).where(
+                    ReviewReminderDelivery.review_reminder_id == reminder.id
+                )
+            ))
+            deliveries_by_contact_id = {
+                delivery.contact_method_id: delivery
+                for delivery in reminder_deliveries
+            }
             for contact in owner_contacts:
+                if contact.id not in deliveries_by_contact_id:
+                    delivery = ReviewReminderDelivery(
+                        review_reminder_id=reminder.id,
+                        contact_method_id=contact.id,
+                    )
+                    db.add(delivery)
+                    reminder_deliveries.append(delivery)
+                    deliveries_by_contact_id[contact.id] = delivery
+            db.flush()
+
+            for delivery in reminder_deliveries:
+                if delivery.status != ReviewReminderDeliveryStatus.pending:
+                    continue
+                contact = owner_contacts_by_id.get(delivery.contact_method_id)
+                if contact is None:
+                    delivery.status = ReviewReminderDeliveryStatus.cancelled
+                    continue
                 result = send_tracked_email(
                     db,
                     settings,
@@ -124,9 +151,17 @@ def run_jobs(settings: Settings) -> dict[str, int]:
                     ),
                     contact_method_id=contact.id,
                 )
-                owner_reminders_sent = owner_reminders_sent and (
-                    result.successful or result.permanent_failure
-                )
+                delivery.last_attempt_at = now
+                if result.successful:
+                    delivery.status = ReviewReminderDeliveryStatus.successful
+                elif result.permanent_failure:
+                    delivery.status = (
+                        ReviewReminderDeliveryStatus.permanent_failure
+                    )
+            owner_reminders_sent = bool(reminder_deliveries) and all(
+                delivery.status != ReviewReminderDeliveryStatus.pending
+                for delivery in reminder_deliveries
+            )
             if owner_reminders_sent and confirmations_sent:
                 reminder.sent_at = now
                 reminders += 1
