@@ -462,12 +462,19 @@ cd /opt/silent-relay
 sh update.sh
 ```
 
-The script stops before changing Git if the worktree is dirty, the encrypted
-backup fails, or the exact new backup cannot be transferred off-site. It then
-uses `git pull --ff-only`, rebuilds and starts the Compose deployment, runs the
-database migration through the `migrate` service, waits for healthy services,
-and verifies `/health/ready` inside the web container. At completion it reports
-the old and new commits plus the installed commit list.
+The script stops if the worktree is dirty, fetches the tracked upstream branch,
+and checks whether a new commit is available. If the installation is already
+current, it exits without creating a backup, stopping services, or rebuilding
+containers. It also stops before a backup if the installed branch cannot be
+fast-forwarded to the fetched upstream commit.
+
+When an update is available, the script creates an encrypted backup and
+transfers that exact new backup off-site before changing the installed commit.
+It then fast-forwards to the commit that was checked, rebuilds and starts the
+Compose deployment, runs the database migration through the `migrate` service,
+waits for healthy services, and verifies `/health/ready` inside the web
+container. At completion it reports the old and new commits plus the installed
+commit list.
 
 If startup, migration, or readiness fails, inspect the logs:
 

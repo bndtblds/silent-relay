@@ -171,9 +171,11 @@ docker compose logs caddy web scheduler
 docker compose restart caddy web scheduler
 ```
 
-Run `sh update.sh` for an update. It refuses a dirty worktree, requires a
-successful encrypted backup and off-site transfer, pulls only by fast-forward,
-rebuilds the deployment, runs migrations, and verifies readiness. `backup.sh`
+Run `sh update.sh` for an update. It refuses a dirty worktree and first checks
+the tracked upstream branch. If no new commit is available, it exits without
+stopping or rebuilding services. Otherwise it requires a successful encrypted
+backup and off-site transfer, updates only by fast-forward, rebuilds the
+deployment, runs migrations, and verifies readiness. `backup.sh`
 creates the encrypted backup of the database volume together with the matching
 private application configuration. `backup-transfer.sh` transfers it to a
 separate SFTP or HTTPS WebDAV system. `restore.sh`
