@@ -1405,7 +1405,7 @@ def notify_confirm(
         raise HTTPException(404)
     trusted_csrf_guard(request, db, settings, person.id, csrf)
     try:
-        notification = service.accept(db, submission)
+        notification = service.accept(db, submission, person.id)
     except LookupError:
         account = db.get(Account, person.account_id)
         raise HTTPException(409, translate(account.language_code, "error.submission"))

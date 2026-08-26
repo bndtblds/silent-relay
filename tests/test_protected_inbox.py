@@ -38,9 +38,10 @@ def release_message(db, settings, cipher, account, trusted_owner_type="account",
         db, account.id, trusted_owner_type, trusted_owner_id or account.id, "Trusted"
     )
     service = NotificationService(settings, cipher)
+    person = service.resolve_person(db, token)
     return service.accept(db, service.stage(
-        db, service.resolve_person(db, token), "A private message only the inbox may show."
-    ))
+        db, person, "A private message only the inbox may show."
+    ), person.id)
 
 
 def test_partner_access_is_one_time_hashed_and_expires(db, settings, cipher):

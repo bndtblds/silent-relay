@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import threading
 import uuid
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
+from app.database import Base
 from app.models import (
     Account, AccountReview, AccountStatus, ContactMethod, ContactReview,
     ContactReviewToken, Delivery, DeliveryStatus, Notification,
-    NotificationStatus, Partner, PartnerCredential, ReviewReminder, ServerSession,
-    SystemConfiguration, TrustedPersonToken,
+    NotificationRecipient, NotificationStatus, Partner, PartnerCredential,
+    ReviewReminder, ServerSession, Submission, SystemConfiguration,
+    TrustedPersonToken,
 )
 from app.providers.base import DeliveryResult
 from app.security.core import SessionManager, hash_password, hash_pin, keyed_hash, verify_pin
@@ -213,7 +216,7 @@ def test_recipient_selection_includes_assigned_partner(db, settings, cipher):
     notifications = NotificationService(settings, cipher)
     person = notifications.resolve_person(db, trusted_token)
     submission = notifications.stage(db, person, "A sufficiently long confidential message.")
-    notification = notifications.accept(db, submission)
+    notification = notifications.accept(db, submission, person.id)
     contacts = list(db.scalars(
         select(ContactMethod).join(Delivery, Delivery.contact_method_id == ContactMethod.id)
         .where(Delivery.notification_id == notification.id)
@@ -237,7 +240,8 @@ def test_recipient_selection_includes_account_owner_for_owner_trusted_person(db,
     notifications = NotificationService(settings, cipher)
     person = notifications.resolve_person(db, trusted_token)
     notification = notifications.accept(
-        db, notifications.stage(db, person, "A sufficiently long confidential message.")
+        db, notifications.stage(db, person, "A sufficiently long confidential message."),
+        person.id,
     )
     contacts = list(db.scalars(
         select(ContactMethod).join(Delivery, Delivery.contact_method_id == ContactMethod.id)
@@ -262,14 +266,92 @@ def test_submission_is_one_time(db, settings, cipher):
     partner = management.add_partner(db, account.id, "Origin")
     _, trusted_token = management.add_trusted_person(db, account.id, "partner", partner.id, "")
     service = NotificationService(settings, cipher)
-    submission = service.stage(db, service.resolve_person(db, trusted_token), "A sufficiently long message.")
-    service.accept(db, submission)
+    person = service.resolve_person(db, trusted_token)
+    submission = service.stage(db, person, "A sufficiently long message.")
+    service.accept(db, submission, person.id)
     try:
-        service.accept(db, submission)
+        service.accept(db, submission, person.id)
     except LookupError:
         pass
     else:
         raise AssertionError("submission accepted twice")
+
+
+def test_foreign_submission_is_not_consumed(db, settings, cipher):
+    account = active_account(db, settings, cipher)
+    management = ManagementService(settings, cipher)
+    person_a, token_a = management.add_trusted_person(
+        db, account.id, "account", account.id, "Trusted A"
+    )
+    person_b, _ = management.add_trusted_person(
+        db, account.id, "account", account.id, "Trusted B"
+    )
+    service = NotificationService(settings, cipher)
+    submission_token = service.stage(
+        db, service.resolve_person(db, token_a), "A sufficiently long private message."
+    )
+
+    with pytest.raises(LookupError):
+        service.accept(db, submission_token, person_b.id)
+
+    submission = db.get(
+        Submission, keyed_hash(submission_token, settings.token_hmac_key)
+    )
+    assert submission.trusted_person_id == person_a.id
+    assert submission.consumed_at is None
+    assert db.scalar(select(func.count()).select_from(Notification)) == 0
+    assert db.scalar(select(func.count()).select_from(NotificationRecipient)) == 0
+    assert db.scalar(select(func.count()).select_from(Delivery)) == 0
+
+
+def test_parallel_submission_acceptance_succeeds_at_most_once(
+    tmp_path, settings, cipher
+):
+    engine = create_engine(f"sqlite:///{(tmp_path / 'submission.db').as_posix()}")
+    Base.metadata.create_all(engine)
+    with Session(engine, expire_on_commit=False) as setup_db:
+        setup_db.add(SystemConfiguration(id="default", notification_delay_minutes=60))
+        setup_db.commit()
+        account = active_account(setup_db, settings, cipher)
+        person, token = ManagementService(settings, cipher).add_trusted_person(
+            setup_db, account.id, "account", account.id, "Trusted"
+        )
+        service = NotificationService(settings, cipher)
+        submission_token = service.stage(
+            setup_db, service.resolve_person(setup_db, token),
+            "A sufficiently long private message.",
+        )
+        person_id = person.id
+
+    barrier = threading.Barrier(2)
+    results = []
+
+    def accept():
+        with Session(engine, expire_on_commit=False) as worker:
+            barrier.wait(timeout=5)
+            try:
+                NotificationService(settings, cipher).accept(
+                    worker, submission_token, person_id
+                )
+            except LookupError:
+                results.append("rejected")
+            else:
+                results.append("accepted")
+
+    threads = [threading.Thread(target=accept) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert sorted(results) == ["accepted", "rejected"]
+    with Session(engine) as check_db:
+        assert check_db.scalar(select(func.count()).select_from(Notification)) == 1
+        assert check_db.scalar(select(func.count()).select_from(Submission).where(
+            Submission.consumed_at.is_not(None)
+        )) == 1
+    engine.dispose()
 
 
 def test_notification_waits_for_fixed_release_time_and_can_be_cancelled(
@@ -287,7 +369,7 @@ def test_notification_waits_for_fixed_release_time_and_can_be_cancelled(
     person = service.resolve_person(db, token)
     before = utc_now()
     notification = service.accept(
-        db, service.stage(db, person, "A sufficiently long queued message.")
+        db, service.stage(db, person, "A sufficiently long queued message."), person.id
     )
     original_release_at = notification.release_at
     assert before + timedelta(minutes=59) < original_release_at
@@ -321,9 +403,11 @@ def test_notification_is_delivered_after_release_time(db, settings, cipher):
         db, account.id, "partner", origin.id, "Trusted"
     )
     service = NotificationService(settings, cipher)
+    person = service.resolve_person(db, token)
     notification = service.accept(
         db,
-        service.stage(db, service.resolve_person(db, token), "A sufficiently long queued message."),
+        service.stage(db, person, "A sufficiently long queued message."),
+        person.id,
     )
     provider = SuccessfulProvider()
     delivery = DeliveryService(settings, cipher, {"email": provider})
@@ -342,8 +426,9 @@ def test_delivery_success_keeps_message_for_protected_inbox(db, settings, cipher
     origin = management.add_partner(db, account.id, "Origin")
     _, token = management.add_trusted_person(db, account.id, "partner", origin.id, "")
     service = NotificationService(settings, cipher)
-    submission = service.stage(db, service.resolve_person(db, token), "A sufficiently long message.")
-    notification = service.accept(db, submission)
+    person = service.resolve_person(db, token)
+    submission = service.stage(db, person, "A sufficiently long message.")
+    notification = service.accept(db, submission, person.id)
     provider = SuccessfulProvider()
     assert DeliveryService(settings, cipher, {"email": provider}).process_due(db) == 1
     db.refresh(notification)
@@ -363,13 +448,15 @@ def _pending_notification(db, settings, cipher):
         db, account.id, "partner", origin.id, ""
     )
     service = NotificationService(settings, cipher)
+    person = service.resolve_person(db, token)
     notification = service.accept(
         db,
         service.stage(
             db,
-            service.resolve_person(db, token),
+            person,
             "A sufficiently long confidential message.",
         ),
+        person.id,
     )
     delivery = db.scalar(
         select(Delivery).where(Delivery.notification_id == notification.id)
@@ -581,13 +668,15 @@ def test_partner_must_still_exist_and_be_active_before_delivery(
         db, account.id, "partner", origin.id, ""
     )
     notifications = NotificationService(settings, cipher)
+    person = notifications.resolve_person(db, trusted_token)
     notification = notifications.accept(
         db,
         notifications.stage(
             db,
-            notifications.resolve_person(db, trusted_token),
+            person,
             "A sufficiently long confidential message.",
         ),
+        person.id,
     )
     owner_delivery = db.scalar(
         select(Delivery)
@@ -638,13 +727,15 @@ def test_notification_aggregate_is_consistent_when_authorization_is_partly_revok
         db, account.id, "partner", origin.id, ""
     )
     notifications = NotificationService(settings, cipher)
+    person = notifications.resolve_person(db, trusted_token)
     notification = notifications.accept(
         db,
         notifications.stage(
             db,
-            notifications.resolve_person(db, trusted_token),
+            person,
             "A sufficiently long confidential message.",
         ),
+        person.id,
     )
     partner_contact = db.scalar(select(ContactMethod).where(
         ContactMethod.owner_type == "partner",
@@ -672,8 +763,9 @@ def test_delivery_email_uses_account_language(db, settings, cipher):
     origin = management.add_partner(db, account.id, "Origin")
     _, token = management.add_trusted_person(db, account.id, "partner", origin.id, "")
     service = NotificationService(settings, cipher)
+    person = service.resolve_person(db, token)
     notification = service.accept(
-        db, service.stage(db, service.resolve_person(db, token), "A sufficiently long message.")
+        db, service.stage(db, person, "A sufficiently long message."), person.id
     )
     provider = SuccessfulProvider()
     DeliveryService(settings, cipher, {"email": provider}).process_due(db)
@@ -693,7 +785,10 @@ def test_temporary_delivery_failure_schedules_retry(db, settings, cipher):
     origin = management.add_partner(db, account.id, "Origin")
     _, token = management.add_trusted_person(db, account.id, "partner", origin.id, "")
     service = NotificationService(settings, cipher)
-    notification = service.accept(db, service.stage(db, service.resolve_person(db, token), "A sufficiently long message."))
+    person = service.resolve_person(db, token)
+    notification = service.accept(
+        db, service.stage(db, person, "A sufficiently long message."), person.id
+    )
     DeliveryService(settings, cipher, {"email": TemporaryFailureProvider()}).process_due(db)
     delivery = db.scalar(select(Delivery).where(Delivery.notification_id == notification.id))
     assert delivery.status == DeliveryStatus.retry_scheduled
@@ -712,13 +807,15 @@ def test_immediate_permanent_delivery_failure_invalidates_contact(
         db, account.id, "partner", origin.id, ""
     )
     service = NotificationService(settings, cipher)
+    person = service.resolve_person(db, token)
     notification = service.accept(
         db,
         service.stage(
             db,
-            service.resolve_person(db, token),
+            person,
             "A sufficiently long message.",
         ),
+        person.id,
     )
     assert DeliveryService(
         settings, cipher, {"email": PermanentFailureProvider()}
@@ -842,8 +939,9 @@ def test_expired_message_is_discarded(db, settings, cipher):
     origin = management.add_partner(db, account.id, "Origin")
     _, token = management.add_trusted_person(db, account.id, "partner", origin.id, "")
     service = NotificationService(settings, cipher)
+    person = service.resolve_person(db, token)
     notification = service.accept(
-        db, service.stage(db, service.resolve_person(db, token), "A sufficiently long message.")
+        db, service.stage(db, person, "A sufficiently long message."), person.id
     )
     notification.expires_at = utc_now() - timedelta(seconds=1)
     db.commit()
