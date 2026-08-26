@@ -16,6 +16,8 @@ from app.models import (
     NotificationStatus,
     PartnerCredential,
     ReviewReminder,
+    ReviewReminderDelivery,
+    ReviewReminderDeliveryStatus,
     SystemConfiguration,
     TrustedPersonToken,
 )
@@ -194,6 +196,126 @@ def test_review_reminder_is_not_sent_twice(db, settings, cipher, monkeypatch):
         ("owner@example.org", "SilentRelay: Regelmäßige Kontoprüfung")
     ]
     assert "/account/" not in RecordingProvider.messages[0][2]
+
+
+def test_review_reminder_retries_only_temporarily_failed_recipient(
+    db, settings, cipher, monkeypatch
+):
+    service = AccountService(settings, cipher)
+    account, _, setup = service.create(db)
+    _, verification = service.setup(
+        db, setup, "correct horse battery staple", "first@example.org"
+    )
+    service.verify_contact(db, verification)
+    second_verification = ManagementService(settings, cipher).add_contact(
+        db, account.id, "account", account.id, "second@example.org"
+    )
+    service.verify_contact(db, second_verification)
+    reminder = db.scalar(select(ReviewReminder).order_by(ReviewReminder.scheduled_at))
+    reminder.scheduled_at = utc_now() - timedelta(seconds=1)
+    db.commit()
+
+    class TemporarilyFailingProvider(RecordingProvider):
+        attempts = []
+
+        def send(self, recipient, subject, body, *, envelope_token=None):
+            self.attempts.append(recipient)
+            if recipient == "second@example.org" and self.attempts.count(recipient) == 1:
+                return DeliveryResult(False, error_class="temporary_smtp_error")
+            return DeliveryResult(True)
+
+    monkeypatch.setattr(
+        jobs,
+        "load_email_provider",
+        lambda db, settings, cipher: TemporarilyFailingProvider(settings),
+    )
+    monkeypatch.setattr(
+        jobs, "SessionLocal", lambda: Session(db.get_bind(), expire_on_commit=False)
+    )
+
+    first_run = jobs.run_jobs(settings)
+    assert first_run["reminders"] == 0
+    assert reminder.sent_at is None
+    assert TemporarilyFailingProvider.attempts == [
+        "first@example.org",
+        "second@example.org",
+    ]
+
+    second_run = jobs.run_jobs(settings)
+    db.refresh(reminder)
+    assert second_run["reminders"] == 1
+    assert reminder.sent_at is not None
+    assert TemporarilyFailingProvider.attempts == [
+        "first@example.org",
+        "second@example.org",
+        "second@example.org",
+    ]
+    statuses = set(db.scalars(select(ReviewReminderDelivery.status)))
+    assert statuses == {ReviewReminderDeliveryStatus.successful}
+
+
+def test_pending_review_reminder_delivery_is_cancelled_for_disabled_contact(
+    db, settings, cipher, monkeypatch
+):
+    service = AccountService(settings, cipher)
+    account, _, setup = service.create(db)
+    _, verification = service.setup(
+        db, setup, "correct horse battery staple", "first@example.org"
+    )
+    service.verify_contact(db, verification)
+    second_verification = ManagementService(settings, cipher).add_contact(
+        db, account.id, "account", account.id, "second@example.org"
+    )
+    service.verify_contact(db, second_verification)
+    reminder = db.scalar(select(ReviewReminder).order_by(ReviewReminder.scheduled_at))
+    reminder.scheduled_at = utc_now() - timedelta(seconds=1)
+    db.commit()
+
+    class FailingSecondRecipientProvider(RecordingProvider):
+        attempts = []
+
+        def send(self, recipient, subject, body, *, envelope_token=None):
+            self.attempts.append(recipient)
+            if recipient == "second@example.org":
+                return DeliveryResult(False, error_class="temporary_smtp_error")
+            return DeliveryResult(True)
+
+    monkeypatch.setattr(
+        jobs,
+        "load_email_provider",
+        lambda db, settings, cipher: FailingSecondRecipientProvider(settings),
+    )
+    monkeypatch.setattr(
+        jobs, "SessionLocal", lambda: Session(db.get_bind(), expire_on_commit=False)
+    )
+
+    jobs.run_jobs(settings)
+    second_contact = next(
+        contact for contact in db.scalars(select(ContactMethod).where(
+            ContactMethod.account_id == account.id
+        ))
+        if cipher.decrypt(contact.encrypted_value) == "second@example.org"
+    )
+    second_contact.is_active = False
+    db.commit()
+
+    result = jobs.run_jobs(settings)
+    db.refresh(reminder)
+    deliveries = list(db.scalars(select(ReviewReminderDelivery)))
+    statuses_by_recipient = {
+        cipher.decrypt(db.get(ContactMethod, delivery.contact_method_id).encrypted_value): delivery.status
+        for delivery in deliveries
+    }
+    assert result["reminders"] == 1
+    assert reminder.sent_at is not None
+    assert FailingSecondRecipientProvider.attempts == [
+        "first@example.org",
+        "second@example.org",
+    ]
+    assert statuses_by_recipient == {
+        "first@example.org": ReviewReminderDeliveryStatus.successful,
+        "second@example.org": ReviewReminderDeliveryStatus.cancelled,
+    }
 
 
 def test_due_review_sends_one_time_confirmation_to_every_contact(
