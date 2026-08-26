@@ -1,6 +1,9 @@
 from datetime import timedelta
+import json
+import logging
 import threading
 
+import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
@@ -16,9 +19,11 @@ from app.models import (
     SystemConfiguration,
     TrustedPersonToken,
 )
+from app.logging_config import JsonFormatter
 from app.model_base import Base
 from app.providers.base import DeliveryResult
 from app.scheduler import jobs
+from app.scheduler import main as scheduler_main
 from app.security.core import hash_pin
 from app.services import AccountService, DeliveryService, ManagementService, NotificationService, PartnerAuthenticationService
 from app.time import utc_now
@@ -36,6 +41,66 @@ class RecordingProvider:
         self.sent.append((recipient, subject))
         self.messages.append((recipient, subject, body))
         return DeliveryResult(True)
+
+
+def test_scheduler_process_configures_shared_logging(settings, monkeypatch):
+    class SchedulerStopped(Exception):
+        pass
+
+    configured_levels = []
+    monkeypatch.setattr(scheduler_main, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        scheduler_main, "configure_logging", configured_levels.append
+    )
+    monkeypatch.setattr(
+        scheduler_main, "run_jobs", lambda settings: (_ for _ in ()).throw(SchedulerStopped)
+    )
+
+    with pytest.raises(SchedulerStopped):
+        scheduler_main.main()
+
+    assert configured_levels == [settings.log_level]
+
+
+def test_ndr_failure_is_logged_safely_and_later_jobs_continue(
+    db, settings, cipher, monkeypatch, caplog
+):
+    secret = "owner@example.org tracking-token imap-password"
+    provider_loaded = False
+
+    class FailingNdrProcessor:
+        def __init__(self, settings, cipher):
+            pass
+
+        def process(self, db):
+            raise TimeoutError(secret)
+
+    def load_provider(db, settings, cipher):
+        nonlocal provider_loaded
+        provider_loaded = True
+        return RecordingProvider(settings)
+
+    monkeypatch.setattr(jobs, "NdrMailboxProcessor", FailingNdrProcessor)
+    monkeypatch.setattr(jobs, "load_email_provider", load_provider)
+    monkeypatch.setattr(
+        jobs, "SessionLocal", lambda: Session(db.get_bind(), expire_on_commit=False)
+    )
+
+    with caplog.at_level(logging.ERROR, logger="silent_relay"):
+        result = jobs.run_jobs(settings)
+
+    records = [
+        record for record in caplog.records
+        if record.getMessage() == "ndr_processing_failed"
+    ]
+    assert len(records) == 1
+    payload = json.loads(JsonFormatter().format(records[0]))
+    assert payload["event"] == "ndr_processing_failed"
+    assert payload["error_class"] == "TimeoutError"
+    assert secret not in json.dumps(payload)
+    assert records[0].exc_info is None
+    assert result["ndr_reports"] == 0
+    assert provider_loaded
 
 
 def test_account_owner_is_notified_about_trusted_pin_setup_and_expiry(

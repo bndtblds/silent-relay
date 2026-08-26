@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.database import engine
 from app.config import get_settings
-from app.main import JsonFormatter, app
+from app.logging_config import JsonFormatter
+from app.main import app
 from app.models import (
     Account,
     AccountReview,

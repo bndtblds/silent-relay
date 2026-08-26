@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import secrets
 from contextlib import asynccontextmanager
@@ -20,13 +19,13 @@ from app.entitlements import (
 from app.i18n import (
     LANGUAGE_LABELS, SUPPORTED_LANGUAGES, browser_language, translate,
 )
+from app.logging_config import configure_logging
 from app.routers import admin, web
 from app.rate_limit import PersistentRateLimiter, policy_for_path
-from app.time import utc_now
 
 settings = get_settings()
 templates = Jinja2Templates(directory="app/templates")
-logger = logging.getLogger("silent_relay")
+logger = configure_logging(settings.log_level)
 
 
 def page_context(request: Request, **values: object) -> dict[str, object]:
@@ -39,25 +38,6 @@ def page_context(request: Request, **values: object) -> dict[str, object]:
         "t": lambda key, **arguments: translate(language, key, **arguments),
         **values,
     }
-
-
-class JsonFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        payload = {
-            "timestamp": utc_now().isoformat().replace("+00:00", "Z"),
-            "severity": record.levelname,
-            "event": record.getMessage(),
-        }
-        request_id = getattr(record, "request_id", None)
-        if request_id:
-            payload["request_id"] = request_id
-        return json.dumps(payload)
-
-
-handler = logging.StreamHandler()
-handler.setFormatter(JsonFormatter())
-logger.addHandler(handler)
-logger.setLevel(settings.log_level)
 
 
 @asynccontextmanager
