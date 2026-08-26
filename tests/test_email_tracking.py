@@ -1,8 +1,12 @@
 from datetime import timedelta
+import json
+import logging
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.email_tracking import NdrMailboxProcessor, send_tracked_email
+from app.logging_config import JsonFormatter
 from app.models import (
     Account,
     ContactMethod,
@@ -325,6 +329,51 @@ def test_untrusted_and_ordinary_messages_are_deleted_without_tracking(
     tracking = db.scalar(select(EmailDeliveryTracking))
     assert tracking.result == "pending"
     assert tracking.last_reported_at is None
+
+
+def test_unexpected_message_processing_failure_is_logged_safely_and_retried(
+    db, settings, cipher, monkeypatch, caplog
+):
+    _configure_ndr(db, settings, cipher)
+    tracking = _tracking(db, settings)
+    FakeImap.messages = {
+        b"1": _dsn("failed", "5.1.1"),
+        b"2": _dsn("failed", "5.1.1"),
+    }
+    FakeImap.deleted = []
+    FakeImap.expunged = False
+    processor = NdrMailboxProcessor(settings, cipher, imap_factory=FakeImap)
+    apply_reports = processor._apply_reports
+    secret = "owner@example.org tracking-token imap-password"
+    attempts = 0
+
+    def fail_once(db, token, reports, now):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise IntegrityError(secret, {}, RuntimeError(secret))
+        return apply_reports(db, token, reports, now)
+
+    monkeypatch.setattr(processor, "_apply_reports", fail_once)
+
+    with caplog.at_level(logging.ERROR, logger="silent_relay"):
+        processed = processor.process(db)
+
+    records = [
+        record for record in caplog.records
+        if record.getMessage() == "ndr_message_processing_failed"
+    ]
+    assert len(records) == 1
+    payload = json.loads(JsonFormatter().format(records[0]))
+    assert payload["event"] == "ndr_message_processing_failed"
+    assert payload["error_class"] == "IntegrityError"
+    assert secret not in json.dumps(payload)
+    assert records[0].exc_info is None
+    assert processed == 1
+    assert FakeImap.deleted == [b"2"]
+    assert FakeImap.expunged
+    db.refresh(tracking)
+    assert tracking.result == "failed"
 
 
 def test_smtp_visible_from_stays_stable_while_envelope_sender_is_correlated(

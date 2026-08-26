@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -29,6 +30,7 @@ from app.smtp_config import ImapNdrConfig, load_ndr_config
 
 TRACKING_RETENTION_DAYS = 30
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
+logger = logging.getLogger("silent_relay")
 
 
 def send_tracked_email(
@@ -157,8 +159,12 @@ class NdrMailboxProcessor:
                             db, token, reports, now
                         )
                     db.commit()
-                except Exception:
+                except Exception as exc:
                     db.rollback()
+                    logger.error(
+                        "ndr_message_processing_failed",
+                        extra={"error_class": type(exc).__name__},
+                    )
                     continue
                 imap.store(message_id, "+FLAGS", "\\Deleted")
             imap.expunge()
