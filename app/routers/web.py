@@ -682,18 +682,22 @@ def add_contact(
         target_id = partner.id
     elif owner_type != "account":
         raise HTTPException(400)
-    token = ManagementService(settings, FieldCipher(settings.field_encryption_key)).add_contact(
-        db, account.id, owner_type, target_id, value
-    )
+    cipher = FieldCipher(settings.field_encryption_key)
+    try:
+        token = ManagementService(settings, cipher).add_contact(
+            db, account.id, owner_type, target_id, value
+        )
+    except ValueError:
+        return RedirectResponse("/account/dashboard?contact_delivery=invalid", 303)
     verify_url = f"{settings.app_base_url}/verify-contact/{token}"
     contact = db.scalar(select(ContactMethod).where(
         ContactMethod.account_id == account.id,
         ContactMethod.verification_token_hash == keyed_hash(token, settings.token_hmac_key),
     ))
-    cipher = FieldCipher(settings.field_encryption_key)
+    normalized_value = cipher.decrypt(contact.encrypted_value) if contact else value
     result = send_tracked_email(
         db, settings, cipher, load_email_provider(db, settings, cipher),
-        value,
+        normalized_value,
         translate(account.language_code, "email.verify_subject"),
         email_body(
             account.language_code, "email.verify_body", url=verify_url,

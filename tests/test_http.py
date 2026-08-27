@@ -923,6 +923,20 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         assert '>Nachrichteneingang</a>' in dashboard.text
         with Session(engine) as db:
             partner_id = db.scalar(select(Partner.id))
+        message_count = len(RecordingEmailProvider.messages)
+        invalid_contact = client.post(
+            "/account/contacts",
+            data={
+                "csrf": csrf,
+                "owner_type": "partner",
+                "owner_id": partner_id,
+                "value": "broken@@example.org",
+            },
+            follow_redirects=True,
+        )
+        assert invalid_contact.status_code == 200
+        assert "Die E-Mail-Adresse ist ungültig." in invalid_contact.text
+        assert len(RecordingEmailProvider.messages) == message_count
         partner_contact = client.post(
             "/account/contacts",
             data={
