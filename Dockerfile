@@ -6,7 +6,7 @@ RUN apt-get update \
     && apt-get upgrade --yes \
     && rm -rf /var/lib/apt/lists/*
 RUN addgroup --system silentrelay && adduser --system --ingroup silentrelay silentrelay
-COPY --from=ghcr.io/astral-sh/uv:0.11.31 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.31@sha256:ecd4de2f060c64bea0ff8ecb182ddf46ba3fcccdc8a60cfdbaf20d1a047d7437 /uv /uvx /bin/
 COPY pyproject.toml uv.lock README.md ./
 COPY app ./app
 COPY migrations ./migrations
