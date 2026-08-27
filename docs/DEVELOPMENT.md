@@ -273,6 +273,38 @@ access data, or other message context. This test protects the deliberately
 accepted at-least-once boundary; it does not establish or imply SMTP
 exactly-once delivery.
 
+### Measuring the SQLite write lock during SMTP delivery
+
+`test_slow_smtp_holds_sqlite_write_lock_until_release_or_timeout` is a
+controlled integration test for the current delivery transaction boundary. It
+uses a file-backed SQLite database in WAL mode, separate sessions and
+connections for the delivery worker and an unrelated configuration write, and
+a provider held by events after the SMTP send path has been entered. Durations
+are measured with `time.monotonic()`.
+
+The test engine deliberately uses a 0.25-second SQLite busy timeout instead of
+an environment-dependent default. One test case releases the provider halfway
+through that interval and proves that the unrelated writer was blocked until
+the delivery transaction completed and then committed. The other keeps the
+provider blocked beyond the configured timeout and proves that the writer
+fails with SQLite's `database is locked` error after approximately that
+timeout, while releasing the provider afterward still lets delivery finish
+normally.
+
+Run the measurement with:
+
+```sh
+uv run pytest tests/test_scheduler.py::test_slow_smtp_holds_sqlite_write_lock_until_release_or_timeout -vv
+```
+
+This establishes lock causality, not a cross-platform performance guarantee:
+the delivery transaction holds a SQLite write lock across external SMTP I/O,
+so an unrelated writer waits for the remaining SMTP duration or reaches its
+configured SQLite timeout. Whether that behavior is practically relevant for
+SilentRelay's small intended workload remains a separate operational decision.
+The measurement does not justify an outbox, another database, or changed
+transaction boundaries by itself.
+
 Queue tests must cover the default and configured delay, unchanged release
 times after configuration changes, no provider call before release, delivery
 at or after release, cancellation by the matching trusted person, rejection at
