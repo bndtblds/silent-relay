@@ -8,7 +8,9 @@ import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
+import app.services as services_module
 from app.database import Base
+from app.i18n import email_body, translate
 from app.models import (
     Account, AccountReview, AccountStatus, AuditLog, ContactMethod, ContactReview,
     ContactReviewToken, Delivery, DeliveryStatus, Notification,
@@ -450,12 +452,24 @@ def test_delivery_success_keeps_message_for_protected_inbox(db, settings, cipher
     assert delivery.processing_until is None
 
 
-def _pending_notification(db, settings, cipher):
+def _pending_notification(
+    db,
+    settings,
+    cipher,
+    *,
+    message="A sufficiently long confidential message.",
+    owner_name=None,
+    partner_name="Origin",
+    trusted_name="",
+):
     account = active_account(db, settings, cipher)
+    if owner_name:
+        account.encrypted_owner_name = cipher.encrypt(owner_name)
+        db.commit()
     management = ManagementService(settings, cipher)
-    origin = management.add_partner(db, account.id, "Origin")
+    origin = management.add_partner(db, account.id, partner_name)
     _, token = management.add_trusted_person(
-        db, account.id, "partner", origin.id, ""
+        db, account.id, "partner", origin.id, trusted_name
     )
     service = NotificationService(settings, cipher)
     person = service.resolve_person(db, token)
@@ -464,7 +478,7 @@ def _pending_notification(db, settings, cipher):
         service.stage(
             db,
             person,
-            "A sufficiently long confidential message.",
+            message,
         ),
         person.id,
     )
@@ -526,30 +540,93 @@ def test_crash_after_claim_before_provider_leaves_recoverable_lease(
     ) == 1
 
 
-def test_crash_after_provider_acceptance_can_duplicate_on_recovery(
-    db, settings, cipher
+def test_crash_after_provider_acceptance_can_duplicate_neutral_notice_on_recovery(
+    db, settings, cipher, monkeypatch
 ):
-    _, _, delivery, _ = _pending_notification(db, settings, cipher)
+    confidential_message = "CONFIDENTIAL-MESSAGE-7f3b8d must stay in the inbox"
+    owner_name = "OWNER-NAME-91c7a2"
+    partner_name = "PARTNER-RELATIONSHIP-42d5e8"
+    trusted_name = "TRUSTED-PERSON-SECRET-68a1f4"
+    account, _, delivery, _ = _pending_notification(
+        db,
+        settings,
+        cipher,
+        message=confidential_message,
+        owner_name=owner_name,
+        partner_name=partner_name,
+        trusted_name=trusted_name,
+    )
     now = utc_now()
+    provider = SuccessfulProvider()
+    service = DeliveryService(settings, cipher, {"email": provider})
+    real_send_tracked_email = services_module.send_tracked_email
+    real_authorized_delivery = DeliveryService._authorized_delivery
+    authorization_checks = []
 
-    class AcceptedThenCrashedProvider(SuccessfulProvider):
-        def send(self, *args, **kwargs):
-            super().send(*args, **kwargs)
-            raise SystemExit
+    def record_authorization(*args):
+        authorization_checks.append(args[1].id)
+        return real_authorized_delivery(*args)
 
-    first_provider = AcceptedThenCrashedProvider()
+    def crash_after_provider_success(*args, **kwargs):
+        result = real_send_tracked_email(*args, **kwargs)
+        assert result.successful
+        raise SystemExit
+
+    monkeypatch.setattr(
+        DeliveryService, "_authorized_delivery", staticmethod(record_authorization)
+    )
+    monkeypatch.setattr(
+        services_module, "send_tracked_email", crash_after_provider_success
+    )
     with pytest.raises(SystemExit):
-        DeliveryService(settings, cipher, {"email": first_provider}).process_due(db, now)
+        service.process_due(db, now)
     db.rollback()
     db.refresh(delivery)
-    assert len(first_provider.recipients) == 1
+    assert len(provider.recipients) == 1
     assert delivery.status == DeliveryStatus.processing
+    assert delivery.attempt_count == 0
+    assert delivery.delivered_at is None
+    assert delivery.provider_message_id is None
+    assert delivery.processing_started_at == now
+    assert delivery.processing_until == now + service.PROCESSING_LEASE
 
-    second_provider = SuccessfulProvider()
-    assert DeliveryService(settings, cipher, {"email": second_provider}).process_due(
+    monkeypatch.setattr(
+        services_module, "send_tracked_email", real_send_tracked_email
+    )
+    assert service.process_due(
+        db, delivery.processing_until - timedelta(microseconds=1)
+    ) == 0
+    assert len(provider.recipients) == 1
+
+    assert service.process_due(
         db, delivery.processing_until + timedelta(microseconds=1)
     ) == 1
-    assert len(second_provider.recipients) == 1
+    db.refresh(delivery)
+    assert len(provider.recipients) == 2
+    assert authorization_checks == [delivery.id, delivery.id]
+    assert delivery.status == DeliveryStatus.delivered
+    assert delivery.attempt_count == 1
+    assert delivery.delivered_at == now + service.PROCESSING_LEASE + timedelta(microseconds=1)
+    assert delivery.provider_message_id == "test-id"
+    assert delivery.processing_started_at is None
+    assert delivery.processing_until is None
+
+    expected_subject = translate(account.language_code, "email.notification_subject")
+    expected_body = email_body(account.language_code, "email.notification_body")
+    assert provider.messages == [
+        ("owner@example.org", expected_subject, expected_body),
+        ("owner@example.org", expected_subject, expected_body),
+    ]
+    forbidden_values = (
+        confidential_message,
+        owner_name,
+        partner_name,
+        trusted_name,
+        "partner",
+    )
+    for _, subject, body in provider.messages:
+        rendered_notice = f"{subject}\n{body}"
+        assert all(value not in rendered_notice for value in forbidden_values)
 
 
 @pytest.mark.parametrize("revocation", ["expired_message", "blocked_contact", "locked_account"])
