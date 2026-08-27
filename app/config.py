@@ -28,7 +28,6 @@ class Settings(BaseSettings):
     default_language: str = "en"
     delivery_max_attempts: int = 6
     hsts_enabled: bool = True
-    trusted_proxy_count: int = 0
     log_level: str = "INFO"
     secure_cookies: bool = True
     session_ttl_minutes: int = 30
