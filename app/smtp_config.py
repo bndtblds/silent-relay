@@ -9,6 +9,7 @@ from imaplib import IMAP4_SSL
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.email_address import normalize_email_address
 from app.models import SmtpConfiguration
 from app.providers.email import EmailNotificationProvider, EmailProviderConfig
 from app.security.core import FieldCipher, fingerprint
@@ -54,12 +55,10 @@ def save_email_config(
 ) -> SmtpConfiguration:
     host = host.strip()
     username = username.strip()
-    from_address = from_address.strip()
+    from_address = normalize_email_address(from_address)
     from_name = from_name.strip()
     if not host or not 1 <= port <= 65535:
         raise ValueError("SMTP-Host und Port sind ungültig.")
-    if "@" not in from_address or len(from_address) > 320:
-        raise ValueError("Die Absenderadresse ist ungültig.")
     stored = db.get(SmtpConfiguration, "default")
     if not stored:
         if password is None:

@@ -9,6 +9,7 @@ from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.email_address import normalize_email_address
 from app.email_tracking import send_tracked_email, update_notification_status
 from app.i18n import email_body, normalize_language, translate
 from app.models import (
@@ -78,9 +79,10 @@ class AccountService:
             raise LookupError(translate(self.settings.default_language, "error.setup_link"))
         language = credential.account.language_code
         normalized_name = self.normalize_owner_name(owner_name, language)
-        normalized_email = email.strip().casefold()
-        if "@" not in normalized_email or len(normalized_email) > 320:
-            raise ValueError(translate(language, "error.email"))
+        try:
+            normalized_email = normalize_email_address(email)
+        except ValueError as exc:
+            raise ValueError(translate(language, "error.email")) from exc
         try:
             credential.password_hash = hash_password(password)
         except ValueError as exc:
@@ -323,7 +325,7 @@ class ManagementService:
     def add_contact(self, db: Session, account_id: str, owner_type: str, owner_id: str, value: str) -> str:
         if owner_type not in {"account", "partner"}:
             raise ValueError
-        token, normalized = generate_token(), value.strip().casefold()
+        token, normalized = generate_token(), normalize_email_address(value)
         db.add(ContactMethod(
             account_id=account_id, owner_type=owner_type, owner_id=owner_id,
             encrypted_value=self.cipher.encrypt(normalized),

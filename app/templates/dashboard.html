@@ -4,7 +4,9 @@
   <form method="post" action="/account/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Abmelden</button></form>
 </header>
 
-{% if request.query_params.get("contact_delivery") == "permanent_failure" %}
+{% if request.query_params.get("contact_delivery") == "invalid" %}
+<p class="error"><strong>Die E-Mail-Adresse ist ungültig.</strong> Prüfen Sie die Eingabe und versuchen Sie es erneut.</p>
+{% elif request.query_params.get("contact_delivery") == "permanent_failure" %}
 <p class="error"><strong>Der Mailserver hat die Adresse abgelehnt.</strong> Die Bestätigungs-E-Mail konnte nicht zugestellt werden. Prüfen Sie die Adresse oder ersetzen Sie diesen Kontaktweg.</p>
 {% elif request.query_params.get("contact_delivery") == "temporary_failure" %}
 <p class="warning"><strong>Die Bestätigungs-E-Mail konnte gerade nicht versendet werden.</strong> Die Adresse wurde nicht als unzustellbar markiert. Versuchen Sie es später erneut.</p>
