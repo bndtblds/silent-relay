@@ -2,9 +2,11 @@ from datetime import timedelta
 import json
 import logging
 import threading
+import time
 
 import pytest
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -702,4 +704,133 @@ def test_overlapping_scheduler_run_cannot_take_valid_claim(
     assert not second.is_alive()
     assert sorted(results) == [0, 1]
     assert len(RecordingProvider.sent) == 1
+    engine.dispose()
+
+
+@pytest.mark.parametrize("release_before_timeout", [True, False])
+def test_slow_smtp_holds_sqlite_write_lock_until_release_or_timeout(
+    tmp_path, settings, cipher, release_before_timeout
+):
+    sqlite_timeout = 0.25
+    engine = create_engine(
+        f"sqlite:///{(tmp_path / 'slow-smtp-lock.db').as_posix()}",
+        connect_args={
+            "check_same_thread": False,
+            "timeout": sqlite_timeout,
+        },
+    )
+    with engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+    Base.metadata.create_all(engine)
+    with Session(engine, expire_on_commit=False) as setup_db:
+        setup_db.add(SystemConfiguration(id="default", notification_delay_minutes=0))
+        setup_db.commit()
+        service = AccountService(settings, cipher)
+        account, _, setup = service.create(setup_db)
+        _, verification = service.setup(
+            setup_db, setup, "correct horse battery staple", "owner@example.org"
+        )
+        service.verify_contact(setup_db, verification)
+        management = ManagementService(settings, cipher)
+        origin = management.add_partner(setup_db, account.id, "Origin")
+        _, token = management.add_trusted_person(
+            setup_db, account.id, "partner", origin.id, ""
+        )
+        notifications = NotificationService(settings, cipher)
+        person = notifications.resolve_person(setup_db, token)
+        notifications.accept(
+            setup_db,
+            notifications.stage(
+                setup_db,
+                person,
+                "A sufficiently long confidential message.",
+            ),
+            person.id,
+        )
+
+    entered_provider = threading.Event()
+    release_provider = threading.Event()
+    writer_started = threading.Event()
+    writer_finished = threading.Event()
+    delivery_results = []
+    delivery_errors = []
+    writer_results = []
+
+    class BlockingProvider(RecordingProvider):
+        def send(self, *args, **kwargs):
+            entered_provider.set()
+            assert release_provider.wait(timeout=5)
+            return super().send(*args, **kwargs)
+
+    def deliver() -> None:
+        try:
+            with Session(engine, expire_on_commit=False) as worker_db:
+                delivery_results.append(
+                    DeliveryService(
+                        settings, cipher, {"email": BlockingProvider(settings)}
+                    ).process_due(worker_db)
+                )
+        except Exception as error:  # pragma: no cover - asserted below
+            delivery_errors.append(error)
+
+    def write_independently() -> None:
+        started_at = time.monotonic()
+        writer_started.set()
+        try:
+            with Session(engine) as writer_db:
+                writer_db.execute(
+                    update(SystemConfiguration)
+                    .where(SystemConfiguration.id == "default")
+                    .values(account_creation_enabled=False)
+                )
+                writer_db.commit()
+            outcome = "committed"
+        except OperationalError as error:
+            outcome = "locked"
+            assert "database is locked" in str(error).lower()
+        finally:
+            writer_results.append((outcome, time.monotonic() - started_at))
+            writer_finished.set()
+
+    RecordingProvider.sent = []
+    delivery_thread = threading.Thread(target=deliver)
+    delivery_thread.start()
+    assert entered_provider.wait(timeout=5)
+
+    writer_thread = threading.Thread(target=write_independently)
+    writer_thread.start()
+    assert writer_started.wait(timeout=5)
+
+    if release_before_timeout:
+        assert not writer_finished.wait(timeout=sqlite_timeout / 2)
+        release_provider.set()
+    else:
+        assert writer_finished.wait(timeout=sqlite_timeout * 4)
+        release_provider.set()
+
+    writer_thread.join(timeout=5)
+    delivery_thread.join(timeout=5)
+
+    assert not writer_thread.is_alive()
+    assert not delivery_thread.is_alive()
+    assert delivery_errors == []
+    assert delivery_results == [1]
+    assert len(RecordingProvider.sent) == 1
+
+    outcome, blocked_for = writer_results[0]
+    if release_before_timeout:
+        assert outcome == "committed"
+        assert blocked_for >= sqlite_timeout / 2
+    else:
+        assert outcome == "locked"
+        assert sqlite_timeout * 0.5 <= blocked_for < sqlite_timeout * 4
+
+    with Session(engine) as verification_db:
+        delivery = verification_db.scalar(select(Delivery))
+        configuration = verification_db.get(SystemConfiguration, "default")
+        assert delivery.status == DeliveryStatus.delivered
+        if release_before_timeout:
+            assert configuration.account_creation_enabled is False
+        else:
+            assert configuration.account_creation_enabled is True
     engine.dispose()
