@@ -427,7 +427,7 @@ def test_production_setup_rejection_does_not_expose_verification_link(monkeypatc
     previous_environment = settings.app_env
     settings.app_env = "production"
     monkeypatch.setattr(
-        web,
+        web.public,
         "load_email_provider",
         lambda db, settings, cipher: PermanentlyRejectingEmailProvider(),
     )
@@ -802,7 +802,12 @@ def test_parallel_contact_confirmation_posts_succeed_at_most_once():
 def test_complete_account_owner_and_notify_flow(monkeypatch):
     RecordingEmailProvider.messages = []
     provider = RecordingEmailProvider(None)
-    monkeypatch.setattr(web, "load_email_provider", lambda db, settings, cipher: provider)
+    for router_module in (web.account, web.public, web.trusted):
+        monkeypatch.setattr(
+            router_module,
+            "load_email_provider",
+            lambda db, settings, cipher: provider,
+        )
 
     with TestClient(app) as client:
         create_form = client.get("/account/create")
@@ -1096,7 +1101,7 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
             )) == 0
 
         monkeypatch.setattr(
-            web,
+            web.account,
             "load_email_provider",
             lambda db, settings, cipher: PermanentlyRejectingEmailProvider(),
         )
