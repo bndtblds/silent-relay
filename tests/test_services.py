@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
-import app.services as services_module
+import app.services.notifications as notification_services_module
 from app.database import Base
 from app.i18n import email_body, translate
 from app.models import (
@@ -559,7 +559,7 @@ def test_crash_after_provider_acceptance_can_duplicate_neutral_notice_on_recover
     now = utc_now()
     provider = SuccessfulProvider()
     service = DeliveryService(settings, cipher, {"email": provider})
-    real_send_tracked_email = services_module.send_tracked_email
+    real_send_tracked_email = notification_services_module.send_tracked_email
     real_authorized_delivery = DeliveryService._authorized_delivery
     authorization_checks = []
 
@@ -576,7 +576,7 @@ def test_crash_after_provider_acceptance_can_duplicate_neutral_notice_on_recover
         DeliveryService, "_authorized_delivery", staticmethod(record_authorization)
     )
     monkeypatch.setattr(
-        services_module, "send_tracked_email", crash_after_provider_success
+        notification_services_module, "send_tracked_email", crash_after_provider_success
     )
     with pytest.raises(SystemExit):
         service.process_due(db, now)
@@ -591,7 +591,7 @@ def test_crash_after_provider_acceptance_can_duplicate_neutral_notice_on_recover
     assert delivery.processing_until == now + service.PROCESSING_LEASE
 
     monkeypatch.setattr(
-        services_module, "send_tracked_email", real_send_tracked_email
+        notification_services_module, "send_tracked_email", real_send_tracked_email
     )
     assert service.process_due(
         db, delivery.processing_until - timedelta(microseconds=1)
