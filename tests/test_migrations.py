@@ -127,7 +127,7 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert system_configuration_columns["account_review_interval_days"] == "'180'"
     assert "message_retention_hours" not in system_configuration_columns
     assert system_configuration_columns["message_retention_days"] == "'30'"
-    assert revision == "0013"
+    assert revision == "0014"
 
 
 def test_published_0009_database_receives_operational_configuration(
@@ -182,7 +182,7 @@ def test_published_0009_database_receives_operational_configuration(
     assert "message_retention_hours" not in columns
     assert "message_retention_days" in columns
     assert stored == (75, 1, 180, 30)
-    assert revision == "0013"
+    assert revision == "0014"
 
 
 def test_previous_alembic_head_upgrades_to_protected_inbox_schema(
@@ -227,10 +227,123 @@ def test_previous_alembic_head_upgrades_to_protected_inbox_schema(
         migrated_credential = connection.execute(
             "SELECT partner_id FROM partner_credentials WHERE partner_id = 'migrated-partner'"
         ).fetchone()
-    assert revision == "0013"
+    assert revision == "0014"
     assert {"partner_credentials", "notification_recipients"} <= tables
     assert migrated_partner == ("migrated-account", 1)
     assert migrated_credential is None
+
+
+def test_partner_session_foreign_key_cleans_orphans_and_cascades(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "partner-session-foreign-key.db"
+    _upgrade(database_path, "0013", monkeypatch)
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            DROP INDEX ix_server_sessions_account_id;
+            DROP INDEX ix_server_sessions_trusted_person_id;
+            DROP INDEX ix_server_sessions_partner_id;
+            DROP INDEX ix_server_sessions_expires_at;
+            CREATE TABLE server_sessions_without_partner_foreign_key (
+                id_hash VARCHAR(64) PRIMARY KEY,
+                kind VARCHAR(16) NOT NULL,
+                account_id VARCHAR(36),
+                trusted_person_id VARCHAR(36),
+                partner_id VARCHAR(36),
+                csrf_hash VARCHAR(64) NOT NULL,
+                created_at DATETIME NOT NULL,
+                expires_at DATETIME NOT NULL,
+                FOREIGN KEY(account_id) REFERENCES accounts (id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY(trusted_person_id) REFERENCES trusted_persons (id)
+                    ON DELETE CASCADE
+            );
+            INSERT INTO server_sessions_without_partner_foreign_key
+                SELECT * FROM server_sessions;
+            DROP TABLE server_sessions;
+            ALTER TABLE server_sessions_without_partner_foreign_key
+                RENAME TO server_sessions;
+            CREATE INDEX ix_server_sessions_account_id
+                ON server_sessions (account_id);
+            CREATE INDEX ix_server_sessions_trusted_person_id
+                ON server_sessions (trusted_person_id);
+            CREATE INDEX ix_server_sessions_partner_id
+                ON server_sessions (partner_id);
+            CREATE INDEX ix_server_sessions_expires_at
+                ON server_sessions (expires_at);
+            """
+        )
+        assert not any(
+            row[3] == "partner_id"
+            for row in connection.execute(
+                "PRAGMA foreign_key_list(server_sessions)"
+            )
+        )
+        connection.execute(
+            """
+            INSERT INTO accounts
+                (id, status, created_at, updated_at, is_admin_locked, version,
+                 last_contact_problem_reminder_at, language_code)
+            VALUES
+                ('session-account', 'active', '2026-08-28 12:00:00',
+                 '2026-08-28 12:00:00', 0, 1, NULL, 'de')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO partners
+                (id, account_id, encrypted_name, is_active, created_at, updated_at)
+            VALUES
+                ('session-partner', 'session-account', X'00', 1,
+                 '2026-08-28 12:00:00', '2026-08-28 12:00:00')
+            """
+        )
+        for session_id, partner_id in (
+            ("valid-partner-session", "session-partner"),
+            ("orphaned-partner-session", "missing-partner"),
+        ):
+            connection.execute(
+                """
+                INSERT INTO server_sessions
+                    (id_hash, kind, account_id, trusted_person_id, partner_id,
+                     csrf_hash, created_at, expires_at)
+                VALUES (?, 'partner', 'session-account', NULL, ?,
+                        'csrf-hash', '2026-08-28 12:00:00',
+                        '2026-08-29 12:00:00')
+                """,
+                (session_id, partner_id),
+            )
+        connection.commit()
+
+    _upgrade(database_path, "head", monkeypatch)
+
+    with sqlite3.connect(database_path) as connection:
+        foreign_keys = list(connection.execute(
+            "PRAGMA foreign_key_list(server_sessions)"
+        ))
+        stored_sessions = {
+            row[0] for row in connection.execute(
+                "SELECT id_hash FROM server_sessions"
+            )
+        }
+        assert any(
+            row[2:7] == (
+                "partners", "partner_id", "id", "NO ACTION", "CASCADE"
+            )
+            for row in foreign_keys
+        )
+        assert stored_sessions == {"valid-partner-session"}
+
+        connection.execute("PRAGMA foreign_keys=ON")
+        assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
+        connection.execute(
+            "DELETE FROM partners WHERE id = 'session-partner'"
+        )
+        connection.commit()
+        assert connection.execute(
+            "SELECT id_hash FROM server_sessions"
+        ).fetchall() == []
 
 
 def test_existing_database_upgrades_without_losing_data(tmp_path, monkeypatch):

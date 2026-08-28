@@ -899,6 +899,8 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
             follow_redirects=True,
         )
         assert "Vertrauliche Nachrichten" in partner_setup.text
+        stale_partner_cookie = client.cookies.get("sr_partner")
+        assert stale_partner_cookie is not None
         partner_password_mismatch = client.post(
             "/partner/password/change",
             data={
@@ -1064,6 +1066,12 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
         assert "Ausgeschlossener Partner" not in deleted_partner.text
         with Session(engine) as db:
             assert db.get(Partner, partner_id) is None
+            assert db.get(
+                ServerSession,
+                keyed_hash(
+                    stale_partner_cookie, get_settings().session_secret
+                ),
+            ) is None
             assert not list(db.scalars(select(ContactMethod).where(
                 ContactMethod.owner_type == "partner",
                 ContactMethod.owner_id == partner_id,
@@ -1074,6 +1082,18 @@ def test_complete_account_owner_and_notify_flow(monkeypatch):
             )))
             for trusted_person_id in partner_person_ids:
                 assert db.get(TrustedPersonToken, trusted_person_id) is None
+
+        for _ in range(2):
+            stale_access = client.get(
+                "/partner/inbox", follow_redirects=False
+            )
+            assert stale_access.status_code == 303
+            assert stale_access.headers["location"] == "/"
+            assert "Internal Server Error" not in stale_access.text
+        with Session(engine) as db:
+            assert db.scalar(select(func.count()).select_from(ServerSession).where(
+                ServerSession.partner_id == partner_id
+            )) == 0
 
         monkeypatch.setattr(
             web,

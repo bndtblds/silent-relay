@@ -897,7 +897,6 @@ def delete_partner(
     db.execute(delete(ContactMethod).where(
         ContactMethod.account_id == account.id, ContactMethod.owner_type == "partner", ContactMethod.owner_id == partner.id
     ))
-    db.execute(delete(ServerSession).where(ServerSession.partner_id == partner.id))
     db.delete(partner)
     db.flush()
     AccountService(

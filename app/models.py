@@ -316,7 +316,7 @@ class ServerSession(Base):
         ForeignKey("trusted_persons.id", ondelete="CASCADE"), index=True
     )
     partner_id: Mapped[str | None] = mapped_column(
-        String(36), index=True
+        ForeignKey("partners.id", ondelete="CASCADE"), index=True
     )
     csrf_hash: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
