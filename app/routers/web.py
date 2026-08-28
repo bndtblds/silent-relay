@@ -154,14 +154,51 @@ def set_partner_session_cookies(response, settings: Settings, raw_session: str, 
 
 
 def inbox_rows(db: Session, cipher: FieldCipher, language: str, owner_type: str, owner_id: str):
+    messages = InboxService(cipher).messages(db, owner_type, owner_id)
+    trusted_person_ids = {
+        notification.trusted_person_id
+        for _, notification in messages
+        if notification.trusted_person_id
+    }
+    trusted_people = {
+        person.id: person
+        for person in db.scalars(select(TrustedPerson).where(
+            TrustedPerson.id.in_(trusted_person_ids)
+        ))
+    } if trusted_person_ids else {}
+    affected_partner_ids = {
+        person.owner_id for person in trusted_people.values()
+        if person.owner_type == "partner"
+    }
+    affected_partners = {
+        partner.id: partner
+        for partner in db.scalars(select(Partner).where(
+            Partner.id.in_(affected_partner_ids)
+        ))
+    } if affected_partner_ids else {}
+    affected_account_ids = {
+        notification.account_id
+        for _, notification in messages
+        if not (
+            notification.trusted_person_id
+            and notification.trusted_person_id in trusted_people
+            and trusted_people[notification.trusted_person_id].owner_type == "partner"
+        )
+    }
+    affected_accounts = {
+        account.id: account
+        for account in db.scalars(select(Account).where(
+            Account.id.in_(affected_account_ids)
+        ))
+    } if affected_account_ids else {}
     rows = []
-    for recipient, notification in InboxService(cipher).messages(db, owner_type, owner_id):
-        person = db.get(TrustedPerson, notification.trusted_person_id) if notification.trusted_person_id else None
+    for recipient, notification in messages:
+        person = trusted_people.get(notification.trusted_person_id)
         if person and person.owner_type == "partner":
-            affected = db.get(Partner, person.owner_id)
+            affected = affected_partners.get(person.owner_id)
             affected_label = cipher.decrypt(affected.encrypted_name) if affected else translate(language, "inbox.partner")
         else:
-            affected_account = db.get(Account, notification.account_id)
+            affected_account = affected_accounts.get(notification.account_id)
             affected_label = (
                 cipher.decrypt(affected_account.encrypted_owner_name)
                 if affected_account and affected_account.encrypted_owner_name
@@ -476,13 +513,24 @@ def dashboard(
     db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
 ):
     cipher = FieldCipher(settings.field_encryption_key)
-    contacts = list(db.scalars(select(ContactMethod).where(ContactMethod.account_id == account.id, ContactMethod.owner_type == "account")))
-    partners = list(db.scalars(select(Partner).where(Partner.account_id == account.id)))
-    owner_people = list(db.scalars(select(TrustedPerson).where(
-        TrustedPerson.account_id == account.id,
-        TrustedPerson.owner_type == "account",
-        TrustedPerson.owner_id == account.id,
+    all_contacts = list(db.scalars(select(ContactMethod).where(
+        ContactMethod.account_id == account.id
     )))
+    contacts = [contact for contact in all_contacts if contact.owner_type == "account"]
+    partners = list(db.scalars(select(Partner).where(Partner.account_id == account.id)))
+    all_people = list(db.scalars(select(TrustedPerson).where(
+        TrustedPerson.account_id == account.id
+    )))
+    owner_people = [
+        person for person in all_people
+        if person.owner_type == "account" and person.owner_id == account.id
+    ]
+    partner_credentials = {
+        credential.partner_id: credential
+        for credential in db.scalars(select(PartnerCredential).where(
+            PartnerCredential.partner_id.in_([partner.id for partner in partners])
+        ))
+    } if partners else {}
     token_records = {
         item.trusted_person_id: item
         for item in db.scalars(select(TrustedPersonToken).join(TrustedPerson).where(
@@ -550,15 +598,15 @@ def dashboard(
 
     partner_rows = []
     for partner in partners:
-        partner_credential = db.get(PartnerCredential, partner.id)
-        people = list(db.scalars(select(TrustedPerson).where(
-            TrustedPerson.account_id == account.id,
-            TrustedPerson.owner_type == "partner",
-            TrustedPerson.owner_id == partner.id,
-        )))
-        partner_contacts = list(db.scalars(select(ContactMethod).where(
-            ContactMethod.account_id == account.id, ContactMethod.owner_type == "partner", ContactMethod.owner_id == partner.id
-        )))
+        partner_credential = partner_credentials.get(partner.id)
+        people = [
+            person for person in all_people
+            if person.owner_type == "partner" and person.owner_id == partner.id
+        ]
+        partner_contacts = [
+            contact for contact in all_contacts
+            if contact.owner_type == "partner" and contact.owner_id == partner.id
+        ]
         partner_rows.append({"id": partner.id, "name": cipher.decrypt(partner.encrypted_name), "active": partner.is_active,
             "access_enrolled": bool(partner_credential and partner_credential.enrolled_at and partner_credential.password_hash),
             "access_expired": bool(partner_credential and not partner_credential.enrolled_at and partner_credential.enrollment_expires_at <= now),

@@ -982,15 +982,29 @@ class InboxService:
         return None
 
     def messages(self, db: Session, owner_type: str, owner_id: str) -> list[tuple[NotificationRecipient, Notification]]:
+        if owner_type == "account":
+            account = db.get(Account, owner_id)
+            if not account or account.status not in {AccountStatus.active, AccountStatus.overdue} or account.is_admin_locked:
+                return []
+            account_id = account.id
+        elif owner_type == "partner":
+            partner = db.get(Partner, owner_id)
+            credential = db.get(PartnerCredential, owner_id)
+            if not partner or not partner.is_active or not credential or not credential.enrolled_at or not credential.password_hash:
+                return []
+            account_id = partner.account_id
+        else:
+            return []
         rows = list(db.execute(select(NotificationRecipient, Notification).join(
             Notification, Notification.id == NotificationRecipient.notification_id
         ).where(
             NotificationRecipient.owner_type == owner_type,
             NotificationRecipient.owner_id == owner_id,
+            Notification.account_id == account_id,
             Notification.encrypted_message_payload.is_not(None),
             Notification.expires_at > utc_now(),
         ).order_by(Notification.release_at.desc())))
-        return [(recipient, notification) for recipient, notification in rows if self.recipient(db, notification.id, owner_type, owner_id)]
+        return [(recipient, notification) for recipient, notification in rows]
 
     def confirm_read(self, db: Session, notification_id: str, owner_type: str, owner_id: str) -> bool:
         existing = db.scalar(select(NotificationRecipient).where(
