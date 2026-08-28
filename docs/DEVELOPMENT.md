@@ -195,8 +195,9 @@ current setup browser so that the manual account flow can continue.
   German/English translation catalog.
 - `app/public_markdown.py` renders the deliberately limited Markdown accepted
   for public operator information.
-- `app/routers/` contains public, account-owner, and technical-admin HTTP
-  routes.
+- `app/routers/` contains public, account-owner, partner, trusted-person, and
+  technical-admin HTTP routes. The main web routes are split by access domain
+  under `app/routers/web/` and retain a shared router through `app.routers.web`.
 - `app/services/` contains application rules and database operations, split by
   focused domains while retaining stable imports through `app.services`.
 - `app/models.py` contains the SQLAlchemy database model.
