@@ -197,7 +197,8 @@ current setup browser so that the manual account flow can continue.
   for public operator information.
 - `app/routers/` contains public, account-owner, and technical-admin HTTP
   routes.
-- `app/services.py` contains application rules and database operations.
+- `app/services/` contains application rules and database operations, split by
+  focused domains while retaining stable imports through `app.services`.
 - `app/models.py` contains the SQLAlchemy database model.
 - `app/providers/` contains the notification-provider interface and SMTP
   implementation.
