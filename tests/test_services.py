@@ -1064,6 +1064,51 @@ def test_administrative_disable_persists_deadline_and_runs_complete_deletion_lif
     assert db.get(Account, account_id) is None
 
 
+def test_lifecycle_repairs_incomplete_disabled_account_retention(db, settings):
+    config = db.get(SystemConfiguration, "default")
+    config.account_retention_after_disable_days = 15
+    known_disabled_at = utc_now() - timedelta(days=3)
+    missing_all = Account(
+        status=AccountStatus.disabled,
+        is_admin_locked=True,
+    )
+    known_disable_time = Account(
+        status=AccountStatus.disabled,
+        is_admin_locked=True,
+        disabled_at=known_disabled_at,
+    )
+    existing_deadline = Account(
+        status=AccountStatus.disabled,
+        is_admin_locked=True,
+        disabled_at=known_disabled_at,
+        deletion_due_at=known_disabled_at + timedelta(days=30),
+    )
+    db.add_all([missing_all, known_disable_time, existing_deadline])
+    db.commit()
+    repair_time = utc_now()
+
+    service = LifecycleService(settings)
+    service.run(db, repair_time)
+    db.commit()
+
+    assert missing_all.disabled_at == repair_time
+    assert missing_all.deletion_due_at == repair_time + timedelta(days=15)
+    assert known_disable_time.disabled_at == known_disabled_at
+    assert known_disable_time.deletion_due_at == known_disabled_at + timedelta(days=15)
+    assert existing_deadline.disabled_at == known_disabled_at
+    assert existing_deadline.deletion_due_at == known_disabled_at + timedelta(days=30)
+    repaired_ids = set(db.scalars(select(AuditLog.account_id).where(
+        AuditLog.event_type == "disabled_account_retention_initialized"
+    )))
+    assert repaired_ids == {missing_all.id, known_disable_time.id}
+
+    service.run(db, missing_all.deletion_due_at)
+    assert missing_all.status == AccountStatus.scheduled_for_deletion
+    missing_id = missing_all.id
+    service.run(db, missing_all.deletion_due_at + timedelta(seconds=1))
+    assert db.get(Account, missing_id) is None
+
+
 def test_periodic_contact_confirmation_and_owner_review_complete_cycle(
     db, settings, cipher
 ):
