@@ -293,6 +293,9 @@ def test_admin_lock_revokes_existing_account_sessions_and_blocks_partner_access(
     settings.admin_password_hash = hash_password("admin demo password")
     cipher = FieldCipher(settings.field_encryption_key)
     with Session(engine, expire_on_commit=False) as db:
+        db.add(SystemConfiguration(
+            id="default", account_retention_after_disable_days=23
+        ))
         account = Account(status=AccountStatus.active)
         other_account = Account(status=AccountStatus.active)
         db.add_all([account, other_account])
@@ -335,6 +338,7 @@ def test_admin_lock_revokes_existing_account_sessions_and_blocks_partner_access(
         notification_id = notification.id
         db.commit()
 
+    disabled_after = utc_now()
     with TestClient(app) as client:
         admin_login = client.post(
             "/admin/login",
@@ -368,6 +372,8 @@ def test_admin_lock_revokes_existing_account_sessions_and_blocks_partner_access(
         account = db.get(Account, account_id)
         assert account.status == AccountStatus.disabled
         assert account.is_admin_locked is True
+        assert account.disabled_at >= disabled_after
+        assert account.deletion_due_at == account.disabled_at + timedelta(days=23)
         assert db.scalar(select(func.count()).select_from(ServerSession).where(
             ServerSession.account_id == account_id
         )) == 0
@@ -379,6 +385,12 @@ def test_admin_lock_revokes_existing_account_sessions_and_blocks_partner_access(
             NotificationRecipient.owner_type == "partner",
         ))
         assert recipient.read_at is None
+        event = db.scalar(select(AuditLog).where(
+            AuditLog.account_id == account_id,
+            AuditLog.event_type == "account_administratively_disabled",
+        ))
+        assert event is not None
+        assert event.request_id == locked.headers["X-Request-ID"]
 
 
 def test_account_language_is_persisted_and_can_be_changed():

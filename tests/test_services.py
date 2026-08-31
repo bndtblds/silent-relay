@@ -1023,6 +1023,47 @@ def test_lifecycle_transitions(db, settings, cipher):
     assert account.status == AccountStatus.disabled
 
 
+def test_administrative_disable_persists_deadline_and_runs_complete_deletion_lifecycle(
+    db, settings, cipher
+):
+    account = active_account(db, settings, cipher)
+    config = db.get(SystemConfiguration, "default")
+    config.account_retention_after_disable_days = 12
+    SessionManager(settings).create(db, "account_owner", account.id)
+    now = utc_now()
+
+    service = LifecycleService(settings)
+    service.disable_administratively(db, account, now)
+    db.commit()
+
+    assert account.status == AccountStatus.disabled
+    assert account.is_admin_locked is True
+    assert account.disabled_at == now
+    assert account.deletion_due_at == now + timedelta(days=12)
+    assert db.scalar(select(func.count()).select_from(ServerSession).where(
+        ServerSession.account_id == account.id
+    )) == 0
+    assert db.scalar(select(func.count()).select_from(AuditLog).where(
+        AuditLog.account_id == account.id,
+        AuditLog.event_type == "account_administratively_disabled",
+    )) == 1
+
+    persisted_deadline = account.deletion_due_at
+    config.account_retention_after_disable_days = 90
+    db.commit()
+    service.run(db, persisted_deadline - timedelta(microseconds=1))
+    assert account.status == AccountStatus.disabled
+    assert account.deletion_due_at == persisted_deadline
+
+    service.run(db, persisted_deadline)
+    assert account.status == AccountStatus.scheduled_for_deletion
+    assert account.deletion_due_at == persisted_deadline
+
+    account_id = account.id
+    service.run(db, persisted_deadline + timedelta(seconds=1))
+    assert db.get(Account, account_id) is None
+
+
 def test_periodic_contact_confirmation_and_owner_review_complete_cycle(
     db, settings, cipher
 ):

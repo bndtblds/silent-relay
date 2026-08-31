@@ -35,6 +35,21 @@ class LifecycleService:
         self.settings = settings
         self.cipher = FieldCipher(settings.field_encryption_key)
 
+    def disable_administratively(
+        self, db: Session, account: Account, now: datetime | None = None
+    ) -> None:
+        now = now or utc_now()
+        account.is_admin_locked = True
+        if account.status != AccountStatus.disabled:
+            account.status = AccountStatus.disabled
+            account.disabled_at = now
+            retention_days = system_configuration(
+                db
+            ).account_retention_after_disable_days
+            account.deletion_due_at = now + timedelta(days=retention_days)
+        SessionManager(self.settings).revoke_account_sessions(db, account.id)
+        audit(db, "account_administratively_disabled", account.id)
+
     def run(self, db: Session, now: datetime | None = None) -> None:
         now = now or utc_now()
         db.execute(delete(ContactReviewToken).where(
@@ -62,8 +77,6 @@ class LifecycleService:
             account.status, account.disabled_at = AccountStatus.disabled, now
             config = system_configuration(db)
             account.deletion_due_at = now + timedelta(days=config.account_retention_after_disable_days)
-        for account in db.scalars(select(Account).where(Account.status == AccountStatus.disabled, Account.deletion_due_at <= now)):
-            account.status = AccountStatus.scheduled_for_deletion
         expired = list(db.scalars(select(Account).where(
             Account.status == AccountStatus.pending_verification,
             Account.created_at <= now - timedelta(days=system_configuration(db).account_pending_retention_days),
@@ -74,6 +87,11 @@ class LifecycleService:
             Account.status == AccountStatus.scheduled_for_deletion, Account.deletion_due_at <= now
         ))):
             db.delete(account)
+        for account in db.scalars(select(Account).where(
+            Account.status == AccountStatus.disabled,
+            Account.deletion_due_at <= now,
+        )):
+            account.status = AccountStatus.scheduled_for_deletion
         db.execute(delete(Submission).where(Submission.expires_at <= now))
         for notification_id in db.scalars(select(Notification.id).where(
             Notification.encrypted_message_payload.is_not(None),
