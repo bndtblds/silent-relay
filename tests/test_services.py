@@ -22,7 +22,7 @@ from app.providers.base import DeliveryResult
 from app.security.core import SessionManager, hash_password, hash_pin, keyed_hash, verify_pin
 from app.services import (
     AccountService, AuthenticationService, DeliveryService, LifecycleService,
-    ManagementService, NotificationService, audit,
+    InboxService, ManagementService, NotificationService, audit,
 )
 from app.time import utc_now
 
@@ -450,6 +450,90 @@ def test_delivery_success_keeps_message_for_protected_inbox(db, settings, cipher
     delivery = db.scalar(select(Delivery).where(Delivery.notification_id == notification.id))
     assert delivery.processing_started_at is None
     assert delivery.processing_until is None
+
+
+@pytest.mark.parametrize(
+    ("status", "is_admin_locked"),
+    [
+        (AccountStatus.disabled, False),
+        (AccountStatus.active, True),
+        (AccountStatus.overdue, True),
+    ],
+)
+def test_parent_account_policy_blocks_every_partner_inbox_path(
+    db, settings, cipher, status, is_admin_locked
+):
+    account, notification, _, _ = _pending_notification(db, settings, cipher)
+    recipient = db.scalar(select(NotificationRecipient).where(
+        NotificationRecipient.notification_id == notification.id,
+        NotificationRecipient.owner_type == "partner",
+    ))
+    assert recipient is not None
+    partner_id = recipient.owner_id
+    recipient.read_at = utc_now()
+    account.status = status
+    account.is_admin_locked = is_admin_locked
+    db.commit()
+
+    inbox = InboxService(cipher)
+    assert inbox.messages(db, "partner", partner_id) == []
+    assert inbox.recipient(db, notification.id, "partner", partner_id) is None
+    assert inbox.confirm_read(db, notification.id, "partner", partner_id) is False
+
+
+def test_admin_lock_blocks_trusted_person_access_while_account_is_active(
+    db, settings, cipher
+):
+    account = active_account(db, settings, cipher)
+    partner = ManagementService(settings, cipher).add_partner(
+        db, account.id, "Partner"
+    )
+    _, token = ManagementService(settings, cipher).add_trusted_person(
+        db, account.id, "partner", partner.id, "Trusted person"
+    )
+    service = NotificationService(settings, cipher)
+    assert service.resolve_access(db, token) is not None
+
+    account.is_admin_locked = True
+    db.commit()
+
+    assert service.resolve_access(db, token) is None
+
+
+@pytest.mark.parametrize(
+    ("status", "is_admin_locked"),
+    [
+        (AccountStatus.disabled, False),
+        (AccountStatus.active, True),
+    ],
+)
+def test_parent_account_policy_blocks_staging_and_acceptance_without_consuming(
+    db, settings, cipher, status, is_admin_locked
+):
+    account = active_account(db, settings, cipher)
+    partner = ManagementService(settings, cipher).add_partner(
+        db, account.id, "Partner"
+    )
+    _, access_token = ManagementService(settings, cipher).add_trusted_person(
+        db, account.id, "partner", partner.id, "Trusted person"
+    )
+    service = NotificationService(settings, cipher)
+    person = service.resolve_person(db, access_token)
+    submission_token = service.stage(db, person, "A sufficiently long message.")
+
+    account.status = status
+    account.is_admin_locked = is_admin_locked
+    db.commit()
+
+    with pytest.raises(LookupError):
+        service.stage(db, person, "Another sufficiently long message.")
+    with pytest.raises(LookupError):
+        service.accept(db, submission_token, person.id)
+
+    submission = db.get(
+        Submission, keyed_hash(submission_token, settings.token_hmac_key)
+    )
+    assert submission.consumed_at is None
 
 
 def _pending_notification(

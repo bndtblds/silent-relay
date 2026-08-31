@@ -155,6 +155,13 @@ class SessionManager:
         ))
         return result.rowcount or 0
 
+    def revoke_account_sessions(self, db: Session, account_id: str) -> int:
+        result = db.execute(delete(ServerSession).where(
+            ServerSession.account_id == account_id,
+            ServerSession.kind.in_({"account_owner", "partner", "trusted_person"}),
+        ))
+        return result.rowcount or 0
+
     def revoke_partner_sessions(self, db: Session, partner_id: str) -> int:
         result = db.execute(delete(ServerSession).where(
             ServerSession.kind == "partner",

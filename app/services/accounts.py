@@ -313,8 +313,7 @@ class PartnerAuthenticationService:
         account = db.get(Account, partner.account_id) if partner else None
         if (
             not credential or not partner or not partner.is_active or not account
-            or account.status not in {AccountStatus.active, AccountStatus.overdue}
-            or account.is_admin_locked
+            or not account.allows_access
         ):
             return None
         return partner, credential

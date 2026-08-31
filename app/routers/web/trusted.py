@@ -250,6 +250,8 @@ def notify_stage(
     language = account.language_code
     try:
         submission = service.stage(db, person, message)
+    except LookupError:
+        raise HTTPException(404)
     except ValueError as exc:
         return templates.TemplateResponse(
             request, "notify.html",

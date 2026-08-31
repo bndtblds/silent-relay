@@ -137,7 +137,8 @@ def partner_session(request: Request, db: Session, settings: Settings) -> tuple[
         db, request.cookies.get("sr_partner"), "partner"
     )
     partner = db.get(Partner, session.partner_id) if session and session.partner_id else None
-    if not session or not partner or not partner.is_active:
+    account = db.get(Account, partner.account_id) if partner else None
+    if not session or not partner or not partner.is_active or not account or not account.allows_access:
         return None
     credential = db.get(PartnerCredential, partner.id)
     if not credential or not credential.enrolled_at or not credential.password_hash:

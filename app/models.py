@@ -68,6 +68,13 @@ class Account(Base):
     language_code: Mapped[str] = mapped_column(String(16), default="de")
     credential: Mapped["AccountOwnerCredential"] = relationship(back_populates="account", cascade="all, delete-orphan")
 
+    @property
+    def allows_access(self) -> bool:
+        return (
+            self.status in {AccountStatus.active, AccountStatus.overdue}
+            and not self.is_admin_locked
+        )
+
 
 class AccountOwnerCredential(Base):
     __tablename__ = "account_owner_credentials"

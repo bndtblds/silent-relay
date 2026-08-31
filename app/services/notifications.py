@@ -88,7 +88,7 @@ class NotificationService:
         if not person or not person.is_active:
             return None
         account = db.get(Account, person.account_id)
-        if not account or account.status not in {AccountStatus.active, AccountStatus.overdue}:
+        if not account or not account.allows_access:
             return None
         if person.owner_type == "account":
             if person.owner_id != account.id:
@@ -122,8 +122,10 @@ class NotificationService:
 
     def stage(self, db: Session, person: TrustedPerson, message: str) -> str:
         account = db.get(Account, person.account_id)
+        if not account or not account.allows_access:
+            raise LookupError
         value, raw = self.normalize_message(
-            message, account.language_code if account else self.settings.default_language
+            message, account.language_code
         ), generate_token()
         db.add(Submission(
             id_hash=keyed_hash(raw, self.settings.token_hmac_key),
@@ -139,9 +141,7 @@ class NotificationService:
     ) -> Notification:
         person = db.get(TrustedPerson, expected_person_id)
         account = db.get(Account, person.account_id) if person else None
-        if not person or not account or account.status not in {
-            AccountStatus.active, AccountStatus.overdue
-        }:
+        if not person or not account or not account.allows_access:
             raise LookupError
         submission_id = keyed_hash(submission_token, self.settings.token_hmac_key)
         now = utc_now()
