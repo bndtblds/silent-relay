@@ -96,6 +96,11 @@ class LifecycleService:
                     days=retention_days
                 )
                 audit(db, "disabled_account_retention_initialized", account.id)
+        for account in db.scalars(select(Account).where(
+            Account.status == AccountStatus.disabled,
+            Account.deletion_due_at <= now,
+        )):
+            account.status = AccountStatus.scheduled_for_deletion
         expired = list(db.scalars(select(Account).where(
             Account.status == AccountStatus.pending_verification,
             Account.created_at <= now - timedelta(days=system_configuration(db).account_pending_retention_days),
@@ -106,11 +111,6 @@ class LifecycleService:
             Account.status == AccountStatus.scheduled_for_deletion, Account.deletion_due_at <= now
         ))):
             db.delete(account)
-        for account in db.scalars(select(Account).where(
-            Account.status == AccountStatus.disabled,
-            Account.deletion_due_at <= now,
-        )):
-            account.status = AccountStatus.scheduled_for_deletion
         db.execute(delete(Submission).where(Submission.expires_at <= now))
         for notification_id in db.scalars(select(Notification.id).where(
             Notification.encrypted_message_payload.is_not(None),
