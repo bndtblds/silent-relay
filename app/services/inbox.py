@@ -49,23 +49,25 @@ class InboxService:
             return None
         if owner_type == "account":
             account = db.get(Account, owner_id)
-            return recipient if account and account.id == notification.account_id and account.status in {AccountStatus.active, AccountStatus.overdue} and not account.is_admin_locked else None
+            return recipient if account and account.id == notification.account_id and account.allows_access else None
         if owner_type == "partner":
             partner = db.get(Partner, owner_id)
             credential = db.get(PartnerCredential, owner_id)
-            return recipient if partner and partner.account_id == notification.account_id and partner.is_active and credential and credential.enrolled_at and credential.password_hash else None
+            account = db.get(Account, partner.account_id) if partner else None
+            return recipient if partner and account and account.id == notification.account_id and account.allows_access and partner.is_active and credential and credential.enrolled_at and credential.password_hash else None
         return None
 
     def messages(self, db: Session, owner_type: str, owner_id: str) -> list[tuple[NotificationRecipient, Notification]]:
         if owner_type == "account":
             account = db.get(Account, owner_id)
-            if not account or account.status not in {AccountStatus.active, AccountStatus.overdue} or account.is_admin_locked:
+            if not account or not account.allows_access:
                 return []
             account_id = account.id
         elif owner_type == "partner":
             partner = db.get(Partner, owner_id)
             credential = db.get(PartnerCredential, owner_id)
-            if not partner or not partner.is_active or not credential or not credential.enrolled_at or not credential.password_hash:
+            account = db.get(Account, partner.account_id) if partner else None
+            if not partner or not account or not account.allows_access or not partner.is_active or not credential or not credential.enrolled_at or not credential.password_hash:
                 return []
             account_id = partner.account_id
         else:
@@ -90,9 +92,10 @@ class InboxService:
         if existing and existing.read_at is not None:
             if owner_type == "account":
                 account = db.get(Account, owner_id)
-                return bool(account and account.status in {AccountStatus.active, AccountStatus.overdue} and not account.is_admin_locked)
+                return bool(account and account.allows_access)
             partner = db.get(Partner, owner_id) if owner_type == "partner" else None
-            return bool(partner and partner.is_active)
+            account = db.get(Account, partner.account_id) if partner else None
+            return bool(partner and account and account.allows_access and partner.is_active)
         if not self.recipient(db, notification_id, owner_type, owner_id):
             db.rollback()
             db.refresh(existing)
@@ -126,10 +129,11 @@ class InboxService:
                 continue
             if recipient.owner_type == "account":
                 account = db.get(Account, recipient.owner_id)
-                blocking += int(bool(account and account.status in {AccountStatus.active, AccountStatus.overdue} and not account.is_admin_locked))
+                blocking += int(bool(account and account.allows_access))
             elif recipient.owner_type == "partner":
                 partner = db.get(Partner, recipient.owner_id)
-                blocking += int(bool(partner and partner.is_active))
+                account = db.get(Account, partner.account_id) if partner else None
+                blocking += int(bool(partner and account and account.allows_access and partner.is_active))
         if blocking == 0:
             db.execute(update(Notification).where(
                 Notification.id == notification_id,

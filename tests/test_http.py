@@ -16,6 +16,7 @@ from app.logging_config import JsonFormatter
 from app.main import app
 from app.models import (
     Account,
+    AccountStatus,
     AccountReview,
     AuditLog,
     ContactMethod,
@@ -24,7 +25,9 @@ from app.models import (
     Delivery,
     Notification,
     NotificationRecipient,
+    NotificationStatus,
     Partner,
+    PartnerCredential,
     PublicSiteContent,
     SmtpConfiguration,
     SystemConfiguration,
@@ -285,10 +288,103 @@ def test_complete_admin_area_uses_browser_language():
         assert 'name="language_code" value="en"' in public.text
 
 
+def test_admin_lock_revokes_existing_account_sessions_and_blocks_partner_access():
+    settings = get_settings()
+    settings.admin_password_hash = hash_password("admin demo password")
+    cipher = FieldCipher(settings.field_encryption_key)
+    with Session(engine, expire_on_commit=False) as db:
+        account = Account(status=AccountStatus.active)
+        other_account = Account(status=AccountStatus.active)
+        db.add_all([account, other_account])
+        db.flush()
+        management = ManagementService(settings, cipher)
+        partner = management.add_partner(db, account.id, "Partner")
+        credential = db.get(PartnerCredential, partner.id)
+        credential.password_hash = hash_password("partner test password")
+        credential.enrolled_at = utc_now()
+        person, _ = management.add_trusted_person(
+            db, account.id, "partner", partner.id, "Trusted person"
+        )
+        notification = Notification(
+            account_id=account.id,
+            status=NotificationStatus.delivered,
+            message_digest="a" * 64,
+            encrypted_message_payload=cipher.encrypt("Confidential message"),
+            release_at=utc_now(),
+            expires_at=utc_now() + timedelta(days=1),
+            deduplication_key="b" * 64,
+        )
+        db.add(notification)
+        db.flush()
+        recipient = NotificationRecipient(
+            notification_id=notification.id,
+            owner_type="partner",
+            owner_id=partner.id,
+        )
+        db.add(recipient)
+        sessions = SessionManager(settings)
+        owner_token, _ = sessions.create(db, "account_owner", account.id)
+        partner_token, partner_csrf = sessions.create(
+            db, "partner", account.id, partner_id=partner.id
+        )
+        sessions.create(
+            db, "trusted_person", account.id, trusted_person_id=person.id
+        )
+        other_token, _ = sessions.create(db, "account_owner", other_account.id)
+        account_id = account.id
+        notification_id = notification.id
+        db.commit()
+
+    with TestClient(app) as client:
+        admin_login = client.post(
+            "/admin/login",
+            data={
+                "username": settings.admin_username,
+                "password": "admin demo password",
+            },
+            follow_redirects=True,
+        )
+        admin_csrf = hidden_value(admin_login.text, "csrf")
+        locked = client.post(
+            f"/admin/accounts/{account_id}/disable",
+            data={"csrf": admin_csrf},
+            follow_redirects=False,
+        )
+        assert locked.status_code == 303
+
+        client.cookies.set("sr_partner", partner_token)
+        client.cookies.set("sr_partner_csrf", partner_csrf)
+        assert client.get("/partner/inbox", follow_redirects=False).status_code == 303
+        denied_read = client.post(
+            f"/partner/inbox/{notification_id}/read",
+            data={"csrf": partner_csrf},
+        )
+        assert denied_read.status_code == 404
+
+        client.cookies.set("sr_account_owner", owner_token)
+        assert client.get("/account/dashboard", follow_redirects=False).status_code == 303
+
+    with Session(engine) as db:
+        account = db.get(Account, account_id)
+        assert account.status == AccountStatus.disabled
+        assert account.is_admin_locked is True
+        assert db.scalar(select(func.count()).select_from(ServerSession).where(
+            ServerSession.account_id == account_id
+        )) == 0
+        assert db.get(
+            ServerSession, keyed_hash(other_token, settings.session_secret)
+        ) is not None
+        recipient = db.scalar(select(NotificationRecipient).where(
+            NotificationRecipient.notification_id == notification_id,
+            NotificationRecipient.owner_type == "partner",
+        ))
+        assert recipient.read_at is None
+
+
 def test_account_language_is_persisted_and_can_be_changed():
     settings = get_settings()
     with Session(engine) as db:
-        account = Account(language_code="de")
+        account = Account(status=AccountStatus.active, language_code="de")
         db.add(account)
         db.flush()
         token, csrf = SessionManager(settings).create(db, "account_owner", account.id)

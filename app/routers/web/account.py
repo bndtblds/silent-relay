@@ -78,7 +78,7 @@ def account_owner_login(
     db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
 ):
     account = AuthenticationService(settings).login(db, token, password)
-    if not account or account.is_admin_locked:
+    if not account or not account.allows_access:
         credential = AuthenticationService(settings).credential_for_token(db, token)
         language = credential.account.language_code if credential else settings.default_language
         raise HTTPException(401, translate(language, "error.login"))

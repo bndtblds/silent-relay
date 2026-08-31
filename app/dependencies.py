@@ -22,7 +22,7 @@ def account_owner_session(request: Request, db: Session = Depends(get_db), setti
 
 def account_owner_account(session: ServerSession = Depends(account_owner_session), db: Session = Depends(get_db)) -> Account:
     account = db.get(Account, session.account_id)
-    if not account:
+    if not account or not account.allows_access:
         raise HTTPException(303, headers={"Location": "/"})
     return account
 
