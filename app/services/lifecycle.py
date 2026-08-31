@@ -35,6 +35,25 @@ class LifecycleService:
         self.settings = settings
         self.cipher = FieldCipher(settings.field_encryption_key)
 
+    def disable_administratively(
+        self, db: Session, account: Account, now: datetime | None = None
+    ) -> None:
+        now = now or utc_now()
+        account.is_admin_locked = True
+        if account.status != AccountStatus.disabled:
+            account.status = AccountStatus.disabled
+        if account.disabled_at is None:
+            account.disabled_at = now
+        if account.deletion_due_at is None:
+            retention_days = system_configuration(
+                db
+            ).account_retention_after_disable_days
+            account.deletion_due_at = account.disabled_at + timedelta(
+                days=retention_days
+            )
+        SessionManager(self.settings).revoke_account_sessions(db, account.id)
+        audit(db, "account_administratively_disabled", account.id)
+
     def run(self, db: Session, now: datetime | None = None) -> None:
         now = now or utc_now()
         db.execute(delete(ContactReviewToken).where(
@@ -62,7 +81,25 @@ class LifecycleService:
             account.status, account.disabled_at = AccountStatus.disabled, now
             config = system_configuration(db)
             account.deletion_due_at = now + timedelta(days=config.account_retention_after_disable_days)
-        for account in db.scalars(select(Account).where(Account.status == AccountStatus.disabled, Account.deletion_due_at <= now)):
+        incomplete_disabled_accounts = list(db.scalars(select(Account).where(
+            Account.status == AccountStatus.disabled,
+            Account.deletion_due_at.is_(None),
+        )))
+        if incomplete_disabled_accounts:
+            retention_days = system_configuration(
+                db
+            ).account_retention_after_disable_days
+            for account in incomplete_disabled_accounts:
+                if account.disabled_at is None:
+                    account.disabled_at = now
+                account.deletion_due_at = account.disabled_at + timedelta(
+                    days=retention_days
+                )
+                audit(db, "disabled_account_retention_initialized", account.id)
+        for account in db.scalars(select(Account).where(
+            Account.status == AccountStatus.disabled,
+            Account.deletion_due_at <= now,
+        )):
             account.status = AccountStatus.scheduled_for_deletion
         expired = list(db.scalars(select(Account).where(
             Account.status == AccountStatus.pending_verification,

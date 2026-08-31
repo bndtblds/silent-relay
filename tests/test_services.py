@@ -1023,6 +1023,98 @@ def test_lifecycle_transitions(db, settings, cipher):
     assert account.status == AccountStatus.disabled
 
 
+def test_administrative_disable_persists_deadline_and_runs_complete_deletion_lifecycle(
+    db, settings, cipher
+):
+    account = active_account(db, settings, cipher)
+    config = db.get(SystemConfiguration, "default")
+    config.account_retention_after_disable_days = 12
+    SessionManager(settings).create(db, "account_owner", account.id)
+    now = utc_now()
+
+    service = LifecycleService(settings)
+    service.disable_administratively(db, account, now)
+    db.commit()
+
+    assert account.status == AccountStatus.disabled
+    assert account.is_admin_locked is True
+    assert account.disabled_at == now
+    assert account.deletion_due_at == now + timedelta(days=12)
+    assert db.scalar(select(func.count()).select_from(ServerSession).where(
+        ServerSession.account_id == account.id
+    )) == 0
+    assert db.scalar(select(func.count()).select_from(AuditLog).where(
+        AuditLog.account_id == account.id,
+        AuditLog.event_type == "account_administratively_disabled",
+    )) == 1
+
+    persisted_deadline = account.deletion_due_at
+    config.account_retention_after_disable_days = 90
+    db.commit()
+    service.run(db, persisted_deadline - timedelta(microseconds=1))
+    assert account.status == AccountStatus.disabled
+    assert account.deletion_due_at == persisted_deadline
+
+    account_id = account.id
+    service.run(db, persisted_deadline)
+    assert db.get(Account, account_id) is None
+
+
+def test_lifecycle_repairs_incomplete_disabled_account_retention(db, settings):
+    config = db.get(SystemConfiguration, "default")
+    config.account_retention_after_disable_days = 15
+    repair_time = utc_now()
+    known_disabled_at = utc_now() - timedelta(days=3)
+    missing_all = Account(
+        status=AccountStatus.disabled,
+        is_admin_locked=True,
+    )
+    known_disable_time = Account(
+        status=AccountStatus.disabled,
+        is_admin_locked=True,
+        disabled_at=known_disabled_at,
+    )
+    existing_deadline = Account(
+        status=AccountStatus.disabled,
+        is_admin_locked=True,
+        disabled_at=known_disabled_at,
+        deletion_due_at=known_disabled_at + timedelta(days=30),
+    )
+    deadline_without_disabled_at = Account(
+        status=AccountStatus.disabled,
+        is_admin_locked=True,
+        deletion_due_at=repair_time + timedelta(days=30),
+    )
+    db.add_all([
+        missing_all,
+        known_disable_time,
+        existing_deadline,
+        deadline_without_disabled_at,
+    ])
+    db.commit()
+
+    service = LifecycleService(settings)
+    service.run(db, repair_time)
+    db.commit()
+
+    assert missing_all.disabled_at == repair_time
+    assert missing_all.deletion_due_at == repair_time + timedelta(days=15)
+    assert known_disable_time.disabled_at == known_disabled_at
+    assert known_disable_time.deletion_due_at == known_disabled_at + timedelta(days=15)
+    assert existing_deadline.disabled_at == known_disabled_at
+    assert existing_deadline.deletion_due_at == known_disabled_at + timedelta(days=30)
+    assert deadline_without_disabled_at.disabled_at is None
+    assert deadline_without_disabled_at.deletion_due_at == repair_time + timedelta(days=30)
+    repaired_ids = set(db.scalars(select(AuditLog.account_id).where(
+        AuditLog.event_type == "disabled_account_retention_initialized"
+    )))
+    assert repaired_ids == {missing_all.id, known_disable_time.id}
+
+    missing_id = missing_all.id
+    service.run(db, missing_all.deletion_due_at)
+    assert db.get(Account, missing_id) is None
+
+
 def test_periodic_contact_confirmation_and_owner_review_complete_cycle(
     db, settings, cipher
 ):

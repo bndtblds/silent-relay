@@ -22,7 +22,7 @@ from app.public_site import (
 )
 from app.providers.email import EmailProviderConfig
 from app.security.core import FieldCipher, SessionManager, verify_password
-from app.services import audit
+from app.services import LifecycleService, audit
 from app.smtp_config import (
     disable_ndr_config, load_email_config, load_email_provider, load_ndr_config,
     save_email_config, save_ndr_config, test_imap_connection, test_smtp_connection,
@@ -503,9 +503,7 @@ def disable(account_id: str, request: Request, csrf: str = Form(...), db: Sessio
     verify_admin_csrf(request, csrf, db, settings)
     account = db.get(Account, account_id)
     if account:
-        account.is_admin_locked = True
-        account.status = AccountStatus.disabled
-        SessionManager(settings).revoke_account_sessions(db, account.id)
+        LifecycleService(settings).disable_administratively(db, account)
         db.commit()
     return RedirectResponse("/admin/accounts", 303)
 
