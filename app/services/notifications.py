@@ -158,12 +158,11 @@ class NotificationService:
             raise LookupError
         submission = db.get(Submission, submission_id)
         message = self.cipher.decrypt(submission.encrypted_message)
-        digest = keyed_hash(message, self.settings.fingerprint_hmac_key)
         config = system_configuration(db)
         release_at = now + timedelta(minutes=config.notification_delay_minutes)
         notification = Notification(
             account_id=account.id, trusted_person_id=person.id, status=NotificationStatus.queued,
-            message_digest=digest, encrypted_message_payload=self.cipher.encrypt(message),
+            encrypted_message_payload=self.cipher.encrypt(message),
             release_at=release_at,
             expires_at=release_at + timedelta(days=config.message_retention_days),
             deduplication_key=submission.id_hash,

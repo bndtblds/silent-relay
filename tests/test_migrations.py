@@ -122,12 +122,13 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert "release_at" in notification_columns
     assert "cancelled_at" in notification_columns
     assert "recipients_frozen_at" in notification_columns
+    assert "message_digest" not in notification_columns
     assert system_configuration_columns["notification_delay_minutes"] == "'10'"
     assert system_configuration_columns["account_creation_enabled"] == "1"
     assert system_configuration_columns["account_review_interval_days"] == "'180'"
     assert "message_retention_hours" not in system_configuration_columns
     assert system_configuration_columns["message_retention_days"] == "'30'"
-    assert revision == "0014"
+    assert revision == "0015"
 
 
 def test_published_0009_database_receives_operational_configuration(
@@ -182,7 +183,7 @@ def test_published_0009_database_receives_operational_configuration(
     assert "message_retention_hours" not in columns
     assert "message_retention_days" in columns
     assert stored == (75, 1, 180, 30)
-    assert revision == "0014"
+    assert revision == "0015"
 
 
 def test_previous_alembic_head_upgrades_to_protected_inbox_schema(
@@ -227,10 +228,74 @@ def test_previous_alembic_head_upgrades_to_protected_inbox_schema(
         migrated_credential = connection.execute(
             "SELECT partner_id FROM partner_credentials WHERE partner_id = 'migrated-partner'"
         ).fetchone()
-    assert revision == "0014"
+    assert revision == "0015"
     assert {"partner_credentials", "notification_recipients"} <= tables
     assert migrated_partner == ("migrated-account", 1)
     assert migrated_credential is None
+
+
+def test_message_digest_is_removed_from_existing_notifications(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "message-digest.db"
+    _upgrade(database_path, "0014", monkeypatch)
+    with sqlite3.connect(database_path) as connection:
+        # Revision 0001 is metadata-driven. Restore the column from the
+        # published pre-0015 schema to represent a real existing database.
+        connection.execute(
+            "ALTER TABLE notifications ADD COLUMN message_digest VARCHAR(64)"
+        )
+        connection.execute(
+            """
+            INSERT INTO accounts
+                (id, status, created_at, updated_at, is_admin_locked, version,
+                 last_contact_problem_reminder_at, language_code)
+            VALUES
+                ('existing-account', 'active', '2026-08-28 12:00:00',
+                 '2026-08-28 12:00:00', 0, 1, NULL, 'de')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO notifications
+                (id, account_id, trusted_person_id, created_at, status,
+                 message_digest, encrypted_message_payload, release_at,
+                 recipients_frozen_at, cancelled_at, expires_at,
+                 deduplication_key)
+            VALUES
+                ('existing-notification', 'existing-account', NULL,
+                 '2026-08-28 12:00:00', 'delivered',
+                 'digest-derived-from-confidential-message', NULL,
+                 '2026-08-28 12:00:00', '2026-08-28 12:00:00', NULL,
+                 '2026-09-27 12:00:00', 'submission-deduplication-key')
+            """
+        )
+        stored_digest = connection.execute(
+            "SELECT message_digest FROM notifications "
+            "WHERE id = 'existing-notification'"
+        ).fetchone()
+        connection.commit()
+    assert stored_digest == ("digest-derived-from-confidential-message",)
+
+    _upgrade(database_path, "head", monkeypatch)
+
+    with sqlite3.connect(database_path) as connection:
+        notification_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(notifications)")
+        }
+        stored_notification = connection.execute(
+            "SELECT id, encrypted_message_payload, deduplication_key "
+            "FROM notifications WHERE id = 'existing-notification'"
+        ).fetchone()
+        revision = connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone()[0]
+    assert "message_digest" not in notification_columns
+    assert stored_notification == (
+        "existing-notification", None, "submission-deduplication-key"
+    )
+    assert revision == "0015"
 
 
 def test_partner_session_foreign_key_cleans_orphans_and_cascades(

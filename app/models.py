@@ -182,7 +182,6 @@ class Notification(Base):
     trusted_person_id: Mapped[str | None] = mapped_column(ForeignKey("trusted_persons.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     status: Mapped[NotificationStatus] = mapped_column(Enum(NotificationStatus), default=NotificationStatus.created)
-    message_digest: Mapped[str] = mapped_column(String(64))
     encrypted_message_payload: Mapped[bytes | None] = mapped_column(LargeBinary)
     release_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, index=True)
     recipients_frozen_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

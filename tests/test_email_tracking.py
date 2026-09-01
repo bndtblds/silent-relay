@@ -194,7 +194,6 @@ def test_immediate_permanent_rejection_marks_contact_and_delivery_failed(
     notification = Notification(
         account_id=account.id,
         status=NotificationStatus.queued,
-        message_digest="digest",
         encrypted_message_payload=cipher.encrypt("message"),
         deduplication_key="immediate-rejection",
     )
@@ -251,7 +250,6 @@ def test_permanent_dsn_marks_contact_and_delivery_failed(db, settings, cipher):
     notification = Notification(
         account_id=account.id,
         status=NotificationStatus.delivered,
-        message_digest="digest",
         deduplication_key="dedupe",
     )
     db.add_all([contact, notification])

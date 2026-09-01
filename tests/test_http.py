@@ -311,7 +311,6 @@ def test_admin_lock_revokes_existing_account_sessions_and_blocks_partner_access(
         notification = Notification(
             account_id=account.id,
             status=NotificationStatus.delivered,
-            message_digest="a" * 64,
             encrypted_message_payload=cipher.encrypt("Confidential message"),
             release_at=utc_now(),
             expires_at=utc_now() + timedelta(days=1),
