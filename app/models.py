@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 from datetime import datetime, timedelta
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from uuid6 import uuid7
 
@@ -136,6 +136,7 @@ class ContactMethod(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
     __table_args__ = (
+        CheckConstraint("owner_type IN ('account', 'partner')", name="ck_contact_methods_owner_type"),
         UniqueConstraint("account_id", "owner_type", "owner_id", "channel", "value_fingerprint"),
         Index("ix_contact_recipient", "account_id", "owner_type", "owner_id", "is_verified", "is_active"),
     )
@@ -152,6 +153,7 @@ class TrustedPerson(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
     __table_args__ = (
+        CheckConstraint("owner_type IN ('account', 'partner')", name="ck_trusted_persons_owner_type"),
         Index("ix_trusted_person_owner", "account_id", "owner_type", "owner_id", "is_active"),
     )
 
@@ -201,6 +203,7 @@ class NotificationRecipient(Base):
     read_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now)
     __table_args__ = (
+        CheckConstraint("owner_type IN ('account', 'partner')", name="ck_notification_recipients_owner_type"),
         UniqueConstraint("notification_id", "owner_type", "owner_id"),
         Index("ix_notification_recipient_lookup", "owner_type", "owner_id", "notification_id"),
     )

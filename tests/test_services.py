@@ -131,6 +131,32 @@ def test_account_setup_encrypts_owner_name(db, settings, cipher):
     assert cipher.decrypt(account.encrypted_owner_name) == "Erika Beispiel"
 
 
+def test_add_contact_rejects_invalid_owner_relationships(db, settings, cipher):
+    service = ManagementService(settings, cipher)
+    account = active_account(db, settings, cipher)
+    other_account = active_account(db, settings, cipher)
+
+    with pytest.raises(LookupError):
+        service.add_contact(
+            db, account.id, "account", other_account.id, "wrong@example.org"
+        )
+    with pytest.raises(LookupError):
+        service.add_contact(
+            db, account.id, "partner", "missing-partner", "missing@example.org"
+        )
+
+    other_partner = service.add_partner(db, other_account.id, "Other")
+    with pytest.raises(LookupError):
+        service.add_contact(
+            db, account.id, "partner", other_partner.id, "other@example.org"
+        )
+
+    assert db.scalar(select(func.count()).select_from(ContactMethod).where(
+        ContactMethod.value_fingerprint.is_not(None),
+        ContactMethod.account_id == account.id,
+    )) == 1
+
+
 def owner_account_with_token(db, settings, cipher, email="owner@example.org"):
     accounts = AccountService(settings, cipher)
     account, owner_token, setup_token = accounts.create(db)
