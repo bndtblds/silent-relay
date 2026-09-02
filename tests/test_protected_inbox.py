@@ -231,6 +231,7 @@ def test_explicit_read_confirmation_erases_after_all_current_recipients(db, sett
     assert inbox.confirm_read(db, notification.id, "partner", partner.id)
     db.refresh(notification)
     assert notification.encrypted_message_payload is None
+    assert "message_digest" not in Notification.__table__.columns
 
 
 def test_inactive_partner_does_not_block_erasure(db, settings, cipher):

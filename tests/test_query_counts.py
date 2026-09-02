@@ -127,7 +127,6 @@ def add_inbox_message(db, cipher, account: Account, partner: Partner, number: in
         account_id=account.id,
         trusted_person_id=trusted_person.id,
         status=NotificationStatus.delivered,
-        message_digest=f"message-digest-{number}",
         encrypted_message_payload=cipher.encrypt(f"Message {number}"),
         release_at=now,
         recipients_frozen_at=now,
