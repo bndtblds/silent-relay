@@ -284,12 +284,14 @@ connections for the delivery worker and an unrelated configuration write, and
 a provider held by events after the SMTP send path has been entered. Durations
 are measured with `time.monotonic()`.
 
-The test engine deliberately uses a 0.25-second SQLite busy timeout instead of
-an environment-dependent default. One test case releases the provider halfway
-through that interval and proves that the unrelated writer was blocked until
-the delivery transaction completed and then committed. The other keeps the
-provider blocked beyond the configured timeout and proves that the writer
-fails with SQLite's `database is locked` error after approximately that
+The test engine deliberately uses explicit SQLite busy timeouts instead of an
+environment-dependent default. The successful case uses a generous five-second
+timeout and a separate short observation window before releasing the provider;
+this proves that the unrelated writer was blocked while SMTP remained blocked,
+then committed after the delivery transaction completed without coupling the
+expected success to a narrow timing margin. The timeout case keeps the provider
+blocked beyond a deliberately short 0.25-second timeout and proves that the
+writer fails with SQLite's `database is locked` error after approximately that
 timeout, while releasing the provider afterward still lets delivery finish
 normally.
 
