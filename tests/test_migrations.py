@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 from alembic import command
 from alembic.config import Config
+import pytest
 
 from app.config import get_settings
 from app.time import utc_now
@@ -90,6 +91,24 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
             row[1]
             for row in connection.execute("PRAGMA index_list(review_reminders)")
         }
+        owner_triggers = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+                "AND name LIKE 'trg_%_owner_%'"
+            )
+        }
+        owner_checks = {
+            table: connection.execute(
+                "SELECT sql FROM sqlite_master "
+                "WHERE type = 'table' AND name = ?", (table,)
+            ).fetchone()[0]
+            for table in (
+                "contact_methods",
+                "trusted_persons",
+                "notification_recipients",
+            )
+        }
     assert "public_site_contents" in tables
     assert "email_delivery_tracking" in tables
     assert "language_code" in account_columns
@@ -128,7 +147,19 @@ def test_fresh_database_upgrades_to_current_schema(tmp_path, monkeypatch):
     assert system_configuration_columns["account_review_interval_days"] == "'180'"
     assert "message_retention_hours" not in system_configuration_columns
     assert system_configuration_columns["message_retention_days"] == "'30'"
-    assert revision == "0015"
+    assert owner_triggers == {
+        "trg_contact_methods_owner_insert",
+        "trg_contact_methods_owner_update",
+        "trg_trusted_persons_owner_insert",
+        "trg_trusted_persons_owner_update",
+        "trg_notification_recipients_owner_insert",
+        "trg_notification_recipients_owner_update",
+    }
+    assert all(
+        "owner_type IN ('account', 'partner')" in sql
+        for sql in owner_checks.values()
+    )
+    assert revision == "0016"
 
 
 def test_published_0009_database_receives_operational_configuration(
@@ -183,7 +214,7 @@ def test_published_0009_database_receives_operational_configuration(
     assert "message_retention_hours" not in columns
     assert "message_retention_days" in columns
     assert stored == (75, 1, 180, 30)
-    assert revision == "0015"
+    assert revision == "0016"
 
 
 def test_previous_alembic_head_upgrades_to_protected_inbox_schema(
@@ -228,7 +259,7 @@ def test_previous_alembic_head_upgrades_to_protected_inbox_schema(
         migrated_credential = connection.execute(
             "SELECT partner_id FROM partner_credentials WHERE partner_id = 'migrated-partner'"
         ).fetchone()
-    assert revision == "0015"
+    assert revision == "0016"
     assert {"partner_credentials", "notification_recipients"} <= tables
     assert migrated_partner == ("migrated-account", 1)
     assert migrated_credential is None
@@ -295,7 +326,193 @@ def test_message_digest_is_removed_from_existing_notifications(
     assert stored_notification == (
         "existing-notification", None, "submission-deduplication-key"
     )
-    assert revision == "0015"
+    assert revision == "0016"
+
+
+def _insert_owner_constraint_fixtures(connection) -> None:
+    connection.executescript(
+        """
+        INSERT INTO accounts
+            (id, status, created_at, updated_at, is_admin_locked, version,
+             last_contact_problem_reminder_at, language_code)
+        VALUES
+            ('owner-account', 'active', '2026-09-02 12:00:00',
+             '2026-09-02 12:00:00', 0, 1, NULL, 'de'),
+            ('other-account', 'active', '2026-09-02 12:00:00',
+             '2026-09-02 12:00:00', 0, 1, NULL, 'de');
+        INSERT INTO partners
+            (id, account_id, encrypted_name, is_active, created_at, updated_at)
+        VALUES
+            ('owner-partner', 'owner-account', X'00', 1,
+             '2026-09-02 12:00:00', '2026-09-02 12:00:00'),
+            ('other-partner', 'other-account', X'00', 1,
+             '2026-09-02 12:00:00', '2026-09-02 12:00:00');
+        INSERT INTO notifications
+            (id, account_id, trusted_person_id, created_at, status,
+             encrypted_message_payload, release_at, recipients_frozen_at,
+             cancelled_at, expires_at, deduplication_key)
+        VALUES
+            ('owner-notification', 'owner-account', NULL,
+             '2026-09-02 12:00:00', 'delivered', X'00',
+             '2026-09-02 12:00:00', '2026-09-02 12:00:00', NULL,
+             '2026-10-02 12:00:00', 'owner-deduplication-key');
+        """
+    )
+
+
+def test_owner_constraints_reject_invalid_inserts_and_updates(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "owner-constraints.db"
+    _upgrade(database_path, "head", monkeypatch)
+
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        _insert_owner_constraint_fixtures(connection)
+
+        contact_sql = """
+            INSERT INTO contact_methods
+                (id, account_id, owner_type, owner_id, channel,
+                 encrypted_value, value_fingerprint, is_verified, is_active,
+                 permanent_failure_count, created_at, updated_at)
+            VALUES (?, 'owner-account', ?, ?, 'email', X'00', ?, 0, 1, 0,
+                    '2026-09-02 12:00:00', '2026-09-02 12:00:00')
+        """
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                contact_sql,
+                ("invalid-type-contact", "invalid", "owner-account", "fp-1"),
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                contact_sql,
+                ("wrong-account-contact", "account", "other-account", "fp-2"),
+            )
+        connection.execute(
+            contact_sql,
+            ("valid-contact", "partner", "owner-partner", "fp-3"),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "UPDATE contact_methods SET owner_id = 'other-partner' "
+                "WHERE id = 'valid-contact'"
+            )
+
+        trusted_sql = """
+            INSERT INTO trusted_persons
+                (id, account_id, owner_type, owner_id, encrypted_display_name,
+                 is_active, created_at, updated_at)
+            VALUES (?, 'owner-account', 'partner', ?, NULL, 1,
+                    '2026-09-02 12:00:00', '2026-09-02 12:00:00')
+        """
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                trusted_sql, ("missing-partner-person", "missing-partner")
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                trusted_sql, ("cross-account-person", "other-partner")
+            )
+
+        recipient_sql = """
+            INSERT INTO notification_recipients
+                (id, notification_id, owner_type, owner_id, read_at, created_at)
+            VALUES (?, 'owner-notification', 'partner', ?, NULL,
+                    '2026-09-02 12:00:00')
+        """
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                recipient_sql, ("missing-partner-recipient", "missing-partner")
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                recipient_sql, ("cross-account-recipient", "other-partner")
+            )
+        connection.execute(
+            recipient_sql, ("historical-recipient", "owner-partner")
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "UPDATE notification_recipients "
+                "SET owner_id = 'other-partner' "
+                "WHERE id = 'historical-recipient'"
+            )
+
+
+def test_partner_deletion_preserves_historical_notification_recipient(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "historical-recipient.db"
+    _upgrade(database_path, "head", monkeypatch)
+
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        _insert_owner_constraint_fixtures(connection)
+        connection.execute(
+            """
+            INSERT INTO notification_recipients
+                (id, notification_id, owner_type, owner_id, read_at, created_at)
+            VALUES
+                ('historical-recipient', 'owner-notification', 'partner',
+                 'owner-partner', NULL, '2026-09-02 12:00:00')
+            """
+        )
+        connection.execute("DELETE FROM partners WHERE id = 'owner-partner'")
+        connection.execute(
+            "UPDATE notification_recipients SET read_at = '2026-09-03 12:00:00' "
+            "WHERE id = 'historical-recipient'"
+        )
+        stored = connection.execute(
+            "SELECT owner_type, owner_id, read_at "
+            "FROM notification_recipients WHERE id = 'historical-recipient'"
+        ).fetchone()
+
+    assert stored == (
+        "partner", "owner-partner", "2026-09-03 12:00:00"
+    )
+
+
+def test_owner_constraint_migration_rejects_inconsistent_existing_data(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "invalid-existing-owners.db"
+    _upgrade(database_path, "0015", monkeypatch)
+
+    with sqlite3.connect(database_path) as connection:
+        _insert_owner_constraint_fixtures(connection)
+        connection.executescript(
+            """
+            INSERT INTO contact_methods
+                (id, account_id, owner_type, owner_id, channel,
+                 encrypted_value, value_fingerprint, is_verified, is_active,
+                 permanent_failure_count, created_at, updated_at)
+            VALUES
+                ('invalid-contact', 'owner-account', 'account',
+                 'other-account', 'email', X'00', 'invalid-fingerprint', 0,
+                 1, 0, '2026-09-02 12:00:00', '2026-09-02 12:00:00');
+            INSERT INTO trusted_persons
+                (id, account_id, owner_type, owner_id, encrypted_display_name,
+                 is_active, created_at, updated_at)
+            VALUES
+                ('invalid-person', 'owner-account', 'partner',
+                 'missing-partner', NULL, 1, '2026-09-02 12:00:00',
+                 '2026-09-02 12:00:00');
+            INSERT INTO notification_recipients
+                (id, notification_id, owner_type, owner_id, read_at, created_at)
+            VALUES
+                ('invalid-recipient', 'owner-notification', 'partner',
+                 'other-partner', NULL, '2026-09-02 12:00:00');
+            """
+        )
+        connection.commit()
+
+    with pytest.raises(RuntimeError) as error:
+        _upgrade(database_path, "head", monkeypatch)
+
+    message = str(error.value)
+    assert "contact_methods=1" in message
+    assert "trusted_persons=1" in message
+    assert "notification_recipients=1" in message
 
 
 def test_partner_session_foreign_key_cleans_orphans_and_cascades(

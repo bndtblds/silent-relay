@@ -42,7 +42,16 @@ class ManagementService:
         db.commit()
 
     def add_contact(self, db: Session, account_id: str, owner_type: str, owner_id: str, value: str) -> str:
-        if owner_type not in {"account", "partner"}:
+        if owner_type == "account":
+            if owner_id != account_id or not db.get(Account, account_id):
+                raise LookupError
+        elif owner_type == "partner":
+            partner = db.scalar(select(Partner).where(
+                Partner.id == owner_id, Partner.account_id == account_id
+            ))
+            if not partner:
+                raise LookupError
+        else:
             raise ValueError
         token, normalized = generate_token(), normalize_email_address(value)
         db.add(ContactMethod(
