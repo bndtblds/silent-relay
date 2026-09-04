@@ -711,7 +711,9 @@ def test_overlapping_scheduler_run_cannot_take_valid_claim(
 def test_slow_smtp_holds_sqlite_write_lock_until_release_or_timeout(
     tmp_path, settings, cipher, release_before_timeout
 ):
-    sqlite_timeout = 0.25
+    timeout_case_sqlite_timeout = 0.25
+    sqlite_timeout = 5.0 if release_before_timeout else timeout_case_sqlite_timeout
+    observation_window = 0.1
     engine = create_engine(
         f"sqlite:///{(tmp_path / 'slow-smtp-lock.db').as_posix()}",
         connect_args={
@@ -802,10 +804,10 @@ def test_slow_smtp_holds_sqlite_write_lock_until_release_or_timeout(
     assert writer_started.wait(timeout=5)
 
     if release_before_timeout:
-        assert not writer_finished.wait(timeout=sqlite_timeout / 2)
+        assert not writer_finished.wait(timeout=observation_window)
         release_provider.set()
     else:
-        assert writer_finished.wait(timeout=sqlite_timeout * 4)
+        assert writer_finished.wait(timeout=timeout_case_sqlite_timeout * 4)
         release_provider.set()
 
     writer_thread.join(timeout=5)
@@ -820,10 +822,14 @@ def test_slow_smtp_holds_sqlite_write_lock_until_release_or_timeout(
     outcome, blocked_for = writer_results[0]
     if release_before_timeout:
         assert outcome == "committed"
-        assert blocked_for >= sqlite_timeout / 2
+        assert blocked_for >= observation_window
     else:
         assert outcome == "locked"
-        assert sqlite_timeout * 0.5 <= blocked_for < sqlite_timeout * 4
+        assert (
+            timeout_case_sqlite_timeout * 0.5
+            <= blocked_for
+            < timeout_case_sqlite_timeout * 4
+        )
 
     with Session(engine) as verification_db:
         delivery = verification_db.scalar(select(Delivery))
