@@ -25,6 +25,12 @@ done
 [ -f .backup-transfer.conf ] || fail ".backup-transfer.conf does not exist; configure off-site backup transfer first"
 [ -f backup.sh ] || fail "backup.sh does not exist"
 [ -f backup-transfer.sh ] || fail "backup-transfer.sh does not exist"
+[ -f maintenance.sh ] || fail "maintenance.sh does not exist"
+
+maintenance_was_active=false
+if sh maintenance.sh status >/dev/null; then
+    maintenance_was_active=true
+fi
 
 worktree_status=$(git status --porcelain) || fail "cannot inspect the Git worktree"
 [ -z "$worktree_status" ] || fail "the Git worktree is not clean; inspect git status before updating"
@@ -57,6 +63,7 @@ step 4 "Transferring backup off-site"
 sh backup-transfer.sh "$backup_file" || fail "the off-site backup transfer did not complete"
 
 step 5 "Installing update and starting services"
+sh maintenance.sh on >/dev/null
 git merge --ff-only "$available_commit" || fail "Git could not fast-forward the installed branch"
 new_commit=$(git rev-parse HEAD) || fail "cannot determine the updated commit"
 if ! docker compose up -d --build --wait --wait-timeout 120; then
@@ -68,6 +75,9 @@ step 6 "Verifying readiness"
 docker compose exec -T web python -c \
     "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)" \
     || fail "the readiness check failed; no automatic rollback was attempted"
+if [ "$maintenance_was_active" = false ]; then
+    sh maintenance.sh off >/dev/null
+fi
 
 printf '\n%s\n' "Update completed: $old_commit -> $new_commit"
 git log --oneline "$old_commit..$new_commit"

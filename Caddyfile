@@ -1,5 +1,24 @@
 {$CADDY_DOMAINS} {
 	@canonical host {$CADDY_DOMAIN}
+	@maintenance file {
+		root /run/silent-relay
+		try_files maintenance.enabled
+	}
+
+	handle @maintenance {
+		rewrite * /maintenance.html
+		header {
+			Cache-Control "no-store"
+			Content-Security-Policy "default-src 'none'; script-src 'sha256-dWnTAZy3kzKH14KDJleKD6pGbtqo13cSNvarOc+Dtcc='; style-src 'sha256-TKm/KtSN2SJoULqIqAPW1+zlD+v52OiiVmYLeN1HmoQ='; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+			Referrer-Policy "no-referrer"
+			Retry-After "30"
+			X-Content-Type-Options "nosniff"
+		}
+		root * /srv/maintenance
+		file_server {
+			status 503
+		}
+	}
 
 	handle @canonical {
 		reverse_proxy web:8000

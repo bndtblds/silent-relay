@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SilentRelay – Wartung</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { display: grid; min-height: 100vh; margin: 0; place-items: center; background: #f3f7f7; color: #173234; }
+    main { width: min(36rem, calc(100% - 3rem)); padding: 2rem; border: 1px solid #bdd0d0; border-radius: .75rem; background: #fff; box-shadow: 0 .5rem 2rem rgb(23 50 52 / 10%); }
+    h1 { margin-top: 0; }
+    button { padding: .75rem 1rem; border: 0; border-radius: .4rem; background: #087f83; color: #fff; cursor: pointer; font: inherit; font-weight: 600; }
+    button:hover { background: #06696c; }
+    @media (prefers-color-scheme: dark) { body { background: #102526; color: #e9f3f3; } main { background: #173234; border-color: #49696a; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Wartungsarbeiten</h1>
+    <p>SilentRelay wird gerade gewartet. Bitte versuchen Sie es in wenigen Augenblicken erneut.</p>
+    <p id="retry-status" aria-live="polite">Neuer Versuch in 30 Sekunden</p>
+    <button id="retry-now" type="button">Jetzt erneut versuchen</button>
+    <noscript><p>Bitte laden Sie diese Seite in wenigen Augenblicken erneut.</p></noscript>
+  </main>
+  <script>
+    (() => {
+      const retry = () => location.assign(location.pathname + location.search + location.hash);
+      const status = document.getElementById("retry-status");
+      let remaining = 30;
+      document.getElementById("retry-now").addEventListener("click", retry);
+      const timer = setInterval(() => {
+        remaining -= 1;
+        status.textContent = `Neuer Versuch in ${remaining} Sekunde${remaining === 1 ? "" : "n"}`;
+        if (remaining === 0) {
+          clearInterval(timer);
+          retry();
+        }
+      }, 1000);
+    })();
+  </script>
+</body>
+</html>

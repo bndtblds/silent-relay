@@ -40,7 +40,13 @@ fi
 command -v age >/dev/null 2>&1 || fail "age is required"
 docker version >/dev/null
 docker compose config --quiet
+[ -f maintenance.sh ] || fail "maintenance.sh does not exist"
 docker compose --profile maintenance build backup restore
+
+maintenance_was_active=false
+if sh maintenance.sh status >/dev/null; then
+    maintenance_was_active=true
+fi
 
 if [ "$replace_existing" = true ]; then
     [ -e .env ] || fail "--replace requires an existing installation"
@@ -56,6 +62,7 @@ else
 fi
 read -r confirmation
 [ "$confirmation" = "$expected_confirmation" ] || fail "confirmation was not entered"
+sh maintenance.sh on >/dev/null
 
 if [ "$replace_existing" = true ]; then
     printf '%s\n' "Creating the mandatory pre-restore safety backup."
@@ -107,6 +114,12 @@ set -e
 
 docker compose run --rm migrate
 docker compose up -d --wait --wait-timeout 120
+docker compose exec -T web python -c \
+    "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)" \
+    || fail "the restored deployment is not ready; maintenance mode remains active"
+if [ "$maintenance_was_active" = false ]; then
+    sh maintenance.sh off >/dev/null
+fi
 docker compose ps
 printf '%s\n' "Restore completed. Verify /health/ready, sign in, and run a test notification."
 printf '%s\n' "Backup manifest: $manifest"

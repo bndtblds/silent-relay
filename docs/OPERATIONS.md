@@ -454,6 +454,43 @@ but before SilentRelay commits `delivered` may cause that external email to be
 sent again after recovery. SilentRelay therefore does not promise exactly-once
 email delivery.
 
+## Maintenance mode
+
+Caddy checks `.runtime/maintenance.enabled` on every request without a reload.
+While that marker exists, every URL returns the self-contained maintenance page
+with HTTP 503, `Retry-After: 30`, and `Cache-Control: no-store`. The page retries
+the same URL with a new GET request after 30 seconds and also offers an immediate
+retry button.
+
+The backup, update, and restore scripts manage this state automatically. They
+never disable a maintenance mode that was already active when they started.
+For manual work, use:
+
+```sh
+sh maintenance.sh on
+sh maintenance.sh status
+sh maintenance.sh off
+```
+
+`on` and `off` are idempotent and return exit code 0. `status` prints the state
+and returns 0 when maintenance mode is active or 1 when it is inactive. Invalid
+usage returns 2.
+
+A successful backup does not automatically mean that maintenance mode ends. If
+the subsequent restart or readiness check fails, it remains active. The same
+safe behavior applies to update and restore failures. Inspect the deployment
+before exposing it again:
+
+```sh
+docker compose ps
+docker compose logs migrate web scheduler caddy
+docker compose exec -T web python -c \
+  "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)"
+```
+
+After correcting the cause and confirming readiness, end the manually retained
+maintenance mode with `sh maintenance.sh off`.
+
 ## Update SilentRelay
 
 Configure and test both encrypted backups and off-site transfer before the
@@ -472,11 +509,13 @@ fast-forwarded to the fetched upstream commit.
 
 When an update is available, the script creates an encrypted backup and
 transfers that exact new backup off-site before changing the installed commit.
-It then fast-forwards to the commit that was checked, rebuilds and starts the
-Compose deployment, runs the database migration through the `migrate` service,
-waits for healthy services, and verifies `/health/ready` inside the web
-container. At completion it reports the old and new commits plus the installed
-commit list.
+It then enables maintenance mode, fast-forwards to the commit that was checked,
+rebuilds and starts the Compose deployment, runs the database migration through
+the `migrate` service, waits for healthy services, and verifies `/health/ready`
+inside the web container. Caddy serves the static maintenance page with HTTP
+503 throughout this interval and switches back to the application only after
+readiness is confirmed. At completion the script reports the old and new
+commits plus the installed commit list.
 
 If startup, migration, or readiness fails, inspect the logs:
 
@@ -488,6 +527,8 @@ Do not force other services to start after a migration failure. The script does
 not attempt automatic rollback: a database migration may make old application
 code incompatible with the current database. Diagnose the failure or restore
 the verified encrypted backup deliberately according to the restore procedure.
+Maintenance mode remains active after a startup, migration, or readiness
+failure.
 
 After a successful update, perform the operator checks:
 
@@ -606,8 +647,14 @@ only after a new backup succeeds.
 
 Web and scheduler are stopped briefly so SQLite and its WAL files are
 consistent. Services that were not running before the backup are not started
-afterwards. The unencrypted archive is streamed directly from the maintenance
-container into `age`; it is not stored on the host.
+afterwards. Caddy stays available and serves a static HTTP 503 maintenance page
+while those services are stopped. The unencrypted archive is streamed directly
+from the maintenance container into `age`; it is not stored on the host.
+
+A successful backup does not automatically mean that maintenance mode ends. If
+restarting a service that was running before the backup or its readiness check
+fails, maintenance mode remains active. A web service that was already stopped
+before the backup remains stopped and is not treated as a backup failure.
 
 For a daily backup at 03:15, add a root cron entry:
 
@@ -1029,7 +1076,8 @@ creates a mandatory new encrypted safety backup with the public age recipient
 configured in `.backup.conf`.
 It then stops web and scheduler, validates the selected backup, replaces only
 `.env` and `silentrelay-data`, migrates the database, and starts the deployment.
-If the safety backup fails, replacement does not begin.
+If the safety backup fails, replacement does not begin. Maintenance mode is
+removed only after the restored web service passes its readiness check.
 
 Replacement is not atomic. After complete validation, SilentRelay removes the
 current files and copies the staged files into place. A host or storage failure

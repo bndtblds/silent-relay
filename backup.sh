@@ -86,6 +86,7 @@ command -v age >/dev/null 2>&1 || fail "age is required"
 docker version >/dev/null
 docker compose config --quiet
 [ -f .env ] || fail ".env does not exist"
+[ -f maintenance.sh ] || fail "maintenance.sh does not exist"
 # Build before opening the binary pipeline. Compose build progress must never be
 # allowed to enter the archive stream when the maintenance image is missing.
 docker compose --profile maintenance build backup
@@ -103,6 +104,12 @@ for service in web scheduler; do
         restart_services="$restart_services $service"
     fi
 done
+
+maintenance_was_active=false
+if sh maintenance.sh status >/dev/null; then
+    maintenance_was_active=true
+fi
+sh maintenance.sh on >/dev/null
 
 cleanup() {
     rm -f "$fifo" "${partial_file:-}"
@@ -158,3 +165,12 @@ IFS=$old_ifs
 
 printf '%s\n' "Backup created: $final_file"
 printf '%s\n' "Keep a copy on a separate system and test restoration regularly."
+
+if [ -n "$restart_services" ]; then
+    docker compose up -d --wait --wait-timeout 120 $restart_services || \
+        fail "previously running services did not become ready; maintenance mode remains active"
+    restart_services=""
+fi
+if [ "$maintenance_was_active" = false ]; then
+    sh maintenance.sh off >/dev/null
+fi
