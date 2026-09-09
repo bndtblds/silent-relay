@@ -25,7 +25,8 @@ def _prepare(
     bin_dir = project / "test-bin"
     project.mkdir()
     bin_dir.mkdir()
-    shutil.copy(Path(__file__).parents[1] / "update.sh", project)
+    for name in ("update.sh", "maintenance.sh"):
+        shutil.copy(Path(__file__).parents[1] / name, project)
     for name in (".env", ".backup.conf", ".backup-transfer.conf"):
         (project / name).touch()
     backup = tmp_path / "silentrelay-test-20260807T120000Z.tar.gz.age"
@@ -88,6 +89,7 @@ def test_successful_update_runs_safety_steps_in_order(tmp_path: Path) -> None:
     commands = (project / "commands").read_text(encoding="utf-8")
     assert commands.index("git:fetch --quiet") < commands.index("backup")
     assert commands.index("transfer:") < commands.index("git:merge --ff-only def456")
+    assert not (project / ".runtime" / "maintenance.enabled").exists()
     assert commands.index("git:merge --ff-only def456") < commands.index(
         "docker:compose up -d --build --wait --wait-timeout 120"
     )
@@ -137,6 +139,32 @@ def test_failed_transfer_stops_before_git_merge(tmp_path: Path) -> None:
     assert "git:merge --ff-only" not in commands
 
 
+def test_existing_maintenance_mode_remains_active_after_update(tmp_path: Path) -> None:
+    project, bin_dir = _prepare(tmp_path)
+    _run_maintenance(project, "on")
+
+    result = _run(project, bin_dir)
+
+    assert result.returncode == 0
+    assert (project / ".runtime" / "maintenance.enabled").is_file()
+
+
+def test_failed_start_leaves_maintenance_mode_active(tmp_path: Path) -> None:
+    project, bin_dir = _prepare(tmp_path)
+    docker = bin_dir / "docker"
+    docker.write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"docker:$*\" >> commands\n"
+        "[ \"$1 $2\" = 'compose up' ] && exit 1\nexit 0\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+
+    result = _run(project, bin_dir)
+
+    assert result.returncode != 0
+    assert (project / ".runtime" / "maintenance.enabled").is_file()
+
+
 def test_non_fast_forward_stops_before_backup(tmp_path: Path) -> None:
     project, bin_dir = _prepare(tmp_path, fast_forward=False)
 
@@ -147,3 +175,9 @@ def test_non_fast_forward_stops_before_backup(tmp_path: Path) -> None:
     assert "cannot be fast-forwarded" in result.stderr
     assert "backup" not in commands
     assert "transfer:" not in commands
+
+
+def _run_maintenance(project: Path, command: str) -> None:
+    subprocess.run(
+        ["sh", "maintenance.sh", command], cwd=project, check=True, capture_output=True
+    )

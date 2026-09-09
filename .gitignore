@@ -16,3 +16,5 @@ data/
 *.db-wal
 .uv-cache/
 .uv-python/
+.runtime/*
+!.runtime/.gitkeep

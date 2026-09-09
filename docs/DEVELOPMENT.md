@@ -412,6 +412,16 @@ Action references and scanner versions are deliberately pinned and must be
 updated through reviewed dependency updates rather than replaced with floating
 `latest` references.
 
+The normal suite checks maintenance marker behavior and the static Caddy
+configuration. To exercise the real Caddy request routing, including the full
+maintenance-on to maintenance-off transition for an arbitrary URL, run the
+opt-in Docker integration test:
+
+```sh
+SILENTRELAY_RUN_DOCKER_INTEGRATION=1 uv run pytest \
+  tests/integration/test_maintenance_caddy.py
+```
+
 Also build or validate Docker when changing:
 
 - `Dockerfile`;

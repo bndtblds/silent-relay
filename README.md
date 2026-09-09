@@ -185,6 +185,10 @@ installation or a new server. See [Operations](docs/OPERATIONS.md) for key
 setup, the distinction between the public encryption recipient and private
 decryption identity, off-server storage, restore testing, migration, update,
 and security guidance.
+During planned downtime, Caddy remains available and serves a static
+maintenance response until the expected services are ready again.
+`sh maintenance.sh on`, `off`, and `status` provide the same mode for manual
+maintenance.
 
 ## Documentation
 

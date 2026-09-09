@@ -27,7 +27,10 @@ fail() {
 
 write_override() {
     target=$1
-    cp "$source_root/backup.sh" "$source_root/restore.sh" "$target/"
+    cp "$source_root/backup.sh" "$source_root/restore.sh" \
+        "$source_root/maintenance.sh" "$target/"
+    mkdir -p "$target/.runtime" "$target/maintenance"
+    cp "$source_root/maintenance/maintenance.html" "$target/maintenance/"
     cp "$source_root/app/backup_restore.py" "$target/app/backup_restore.py"
     cat > "$target/docker-compose.override.yml" <<'EOF'
 services:
@@ -84,6 +87,22 @@ backup_count=$(find "$backup_directory" -maxdepth 1 -name '*.tar.gz.age' | wc -l
 [ "$backup_count" -eq 7 ] || fail "retention kept $backup_count backups instead of 7"
 selected_backup=$(find "$backup_directory" -maxdepth 1 -name '*.tar.gz.age' | sort | head -n 1)
 
+# A maintenance mode that predates the backup must remain active.
+COMPOSE_PROJECT_NAME=$source_project sh maintenance.sh on >/dev/null
+COMPOSE_PROJECT_NAME=$source_project sh backup.sh >/dev/null
+[ -f "$source_copy/.runtime/maintenance.enabled" ] || \
+    fail "backup disabled a pre-existing maintenance mode"
+COMPOSE_PROJECT_NAME=$source_project sh maintenance.sh off >/dev/null
+
+# A service that was already stopped must remain stopped after a backup.
+COMPOSE_PROJECT_NAME=$source_project docker compose stop scheduler >/dev/null
+COMPOSE_PROJECT_NAME=$source_project sh backup.sh >/dev/null
+if COMPOSE_PROJECT_NAME=$source_project docker compose ps --status running --services | \
+    grep -qx scheduler; then
+    fail "backup restarted a service that was previously stopped"
+fi
+COMPOSE_PROJECT_NAME=$source_project docker compose up -d --wait scheduler >/dev/null
+
 # An encryption failure must leave no partial archive and restart prior services.
 real_age=$(command -v age)
 mkdir "$test_root/failing-bin"
@@ -102,11 +121,18 @@ for service in web scheduler; do
     COMPOSE_PROJECT_NAME=$source_project docker compose ps --status running --services | \
         grep -qx "$service" || fail "$service was not restarted after backup failure"
 done
+[ -f "$source_copy/.runtime/maintenance.enabled" ] || \
+    fail "failed backup did not leave maintenance mode active"
+COMPOSE_PROJECT_NAME=$source_project sh maintenance.sh off >/dev/null
 
 # A replacement safety backup must not remove the selected restore archive.
+COMPOSE_PROJECT_NAME=$source_project sh maintenance.sh on >/dev/null
 printf '%s\n' REPLACE | COMPOSE_PROJECT_NAME=$source_project sh restore.sh --replace \
     "$selected_backup" "$identity_file" >/dev/null
 [ -f "$selected_backup" ] || fail "pre-restore retention removed the selected archive"
+[ -f "$source_copy/.runtime/maintenance.enabled" ] || \
+    fail "restore disabled a pre-existing maintenance mode"
+COMPOSE_PROJECT_NAME=$source_project sh maintenance.sh off >/dev/null
 
 prepare_copy "$restore_copy"
 cd "$restore_copy"
@@ -127,6 +153,9 @@ if printf '%s\n' RESTORE | COMPOSE_PROJECT_NAME=$restore_project sh restore.sh \
     fail "restore accepted incompatible Git history"
 fi
 [ ! -e .env ] || fail "compatibility rejection wrote .env"
+[ -f "$restore_copy/.runtime/maintenance.enabled" ] || \
+    fail "failed restore did not leave maintenance mode active"
+COMPOSE_PROJECT_NAME=$restore_project sh maintenance.sh off >/dev/null
 
 git checkout --quiet --detach "$(git -C "$source_copy" rev-parse HEAD)"
 write_override "$restore_copy"
@@ -139,5 +168,7 @@ cmp "$source_copy/.env" "$restore_copy/.env" >/dev/null || fail "restored .env d
 COMPOSE_PROJECT_NAME=$restore_project docker compose exec -T web \
     python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)" || \
     fail "restored web service is not ready"
+[ ! -e "$restore_copy/.runtime/maintenance.enabled" ] || \
+    fail "successful restore left maintenance mode active"
 
 printf '%s\n' "Docker backup and restore integration test passed."
