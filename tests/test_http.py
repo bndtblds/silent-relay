@@ -602,6 +602,89 @@ def test_owner_credential_change_revokes_all_browser_sessions(credential_change)
         assert "Kontoverwaltung" in signed_in_again.text
 
 
+def test_wrong_account_deletion_password_preserves_account():
+    settings = get_settings()
+    cipher = FieldCipher(settings.field_encryption_key)
+    with Session(engine, expire_on_commit=False) as db:
+        account = AccountService(settings, cipher)
+        created, _, setup_token = account.create(db)
+        _, verification = account.setup(
+            db, setup_token, "correct horse battery staple", "owner@example.org"
+        )
+        account.verify_contact(db, verification)
+        account_id = created.id
+        original_status = created.status
+        original_password_hash = created.credential.password_hash
+        session_token, csrf = SessionManager(settings).create(
+            db, "account_owner", account_id
+        )
+        db.commit()
+
+    with TestClient(app) as client:
+        client.cookies.set("sr_account_owner", session_token)
+        response = client.post(
+            "/account/delete",
+            data={"csrf": csrf, "password": "wrong password"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 401
+    with Session(engine) as db:
+        preserved = db.get(Account, account_id)
+        assert preserved is not None
+        assert preserved.status == original_status
+        assert preserved.credential.password_hash == original_password_hash
+
+
+def test_account_owner_cannot_change_or_delete_foreign_people():
+    settings = get_settings()
+    cipher = FieldCipher(settings.field_encryption_key)
+    with Session(engine, expire_on_commit=False) as db:
+        owner_account = Account(status=AccountStatus.active)
+        foreign_account = Account(status=AccountStatus.active)
+        db.add_all([owner_account, foreign_account])
+        db.flush()
+        management = ManagementService(settings, cipher)
+        foreign_partner = management.add_partner(db, foreign_account.id, "Foreign partner")
+        foreign_person, _ = management.add_trusted_person(
+            db, foreign_account.id, "partner", foreign_partner.id, "Foreign person"
+        )
+        owner_session, csrf = SessionManager(settings).create(
+            db, "account_owner", owner_account.id
+        )
+        db.commit()
+        partner_id = foreign_partner.id
+        person_id = foreign_person.id
+        original_partner_name = foreign_partner.encrypted_name
+
+    with TestClient(app) as client:
+        client.cookies.set("sr_account_owner", owner_session)
+        edit_partner = client.post(
+            f"/account/partners/{partner_id}/edit",
+            data={"csrf": csrf, "name": "Changed by another account"},
+            follow_redirects=False,
+        )
+        delete_partner = client.post(
+            f"/account/partners/{partner_id}/delete",
+            data={"csrf": csrf},
+            follow_redirects=False,
+        )
+        delete_person = client.post(
+            f"/account/trusted-persons/{person_id}/delete",
+            data={"csrf": csrf},
+            follow_redirects=False,
+        )
+
+    assert edit_partner.status_code == 404
+    assert delete_partner.status_code == 404
+    assert delete_person.status_code == 404
+    with Session(engine) as db:
+        preserved_partner = db.get(Partner, partner_id)
+        assert preserved_partner is not None
+        assert preserved_partner.encrypted_name == original_partner_name
+        assert db.get(TrustedPerson, person_id) is not None
+
+
 def test_selected_account_language_controls_onboarding():
     with TestClient(app) as client:
         create = client.get("/account/create", headers={"Accept-Language": "de"})

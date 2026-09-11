@@ -1049,6 +1049,58 @@ def test_lifecycle_transitions(db, settings, cipher):
     assert account.status == AccountStatus.disabled
 
 
+def test_pending_account_is_deleted_exactly_at_retention_boundary(
+    db, settings, cipher
+):
+    account, _, _ = AccountService(settings, cipher).create(db)
+    config = db.get(SystemConfiguration, "default")
+    config.account_pending_retention_days = 14
+    boundary = account.created_at + timedelta(days=14)
+    account_id = account.id
+    db.commit()
+
+    service = LifecycleService(settings)
+    service.run(db, boundary - timedelta(microseconds=1))
+    assert db.get(Account, account_id) is not None
+
+    service.run(db, boundary)
+    assert db.get(Account, account_id) is None
+
+
+def test_foreign_account_cannot_change_partner_or_trusted_person(
+    db, settings, cipher
+):
+    owner_account = active_account(db, settings, cipher)
+    foreign_account = active_account(db, settings, cipher)
+    management = ManagementService(settings, cipher)
+    foreign_partner = management.add_partner(
+        db, foreign_account.id, "Foreign partner"
+    )
+    foreign_person, _ = management.add_trusted_person(
+        db,
+        foreign_account.id,
+        "partner",
+        foreign_partner.id,
+        "Foreign person",
+    )
+    credential = db.get(TrustedPersonToken, foreign_person.id)
+    original_token_hash = credential.token_hash
+
+    with pytest.raises(LookupError):
+        management.set_partner_active(
+            db, owner_account.id, foreign_partner.id, False
+        )
+    with pytest.raises(LookupError):
+        management.rotate_trusted_token(
+            db, owner_account.id, foreign_person.id
+        )
+
+    db.refresh(foreign_partner)
+    db.refresh(credential)
+    assert foreign_partner.is_active is True
+    assert credential.token_hash == original_token_hash
+
+
 def test_administrative_disable_persists_deadline_and_runs_complete_deletion_lifecycle(
     db, settings, cipher
 ):

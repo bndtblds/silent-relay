@@ -89,8 +89,11 @@ Pull requests and pushes to `main` must pass the separate Tests workflow. It
 installs the locked test environment, runs the complete normal test suite with
 branch coverage, validates the canonical and release-tag versions, and
 publishes the HTML and XML coverage reports plus the commit and workflow-run
-identity as a workflow artifact. The measured coverage is reported but is not
-subject to an arbitrary minimum threshold.
+identity as a workflow artifact. Branch coverage must remain at or above 82%.
+This floor is deliberately just below the current measured baseline of about
+83%: it catches material regressions while allowing small interpreter or
+platform differences. It is not a target for artificial 100% coverage; new
+tests should continue to protect concrete risks and important invariants.
 
 The opt-in Docker backup and restore integration test remains separate from
 this required gate because it needs additional host tools and performs a
