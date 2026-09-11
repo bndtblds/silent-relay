@@ -319,7 +319,11 @@ def test_admin_account_pagination_and_empty_database():
                 Account(
                     id=f"account-{number:02d}",
                     status=AccountStatus.active,
-                    created_at=created_at - timedelta(minutes=number),
+                    created_at=(
+                        created_at
+                        if number in {0, 1}
+                        else created_at - timedelta(minutes=number)
+                    ),
                 )
                 for number in range(51)
             ]
@@ -345,6 +349,9 @@ def test_admin_account_pagination_and_empty_database():
         assert "account-50" not in first_page.text
         assert "Seite 1 von 2" in first_page.text
         assert 'href="/admin/accounts?page=2">Weiter</a>' in first_page.text
+        assert first_page.text.index("account-00") < first_page.text.index(
+            "account-01"
+        )
         first_account_row = re.search(
             r"<tr><td><code>account-00</code>(.*?)</tr>", first_page.text, re.DOTALL
         )
