@@ -10,6 +10,28 @@ and require no external service. Before deliberately installing an alternative
 registration provider, review [ENTITLEMENTS.md](ENTITLEMENTS.md), including its
 fail-closed behavior.
 
+## Supported database
+
+SQLite is the only supported database. The standard deployment stores
+`app.db` and its WAL files on the persistent local application volume and sets
+`DATABASE_URL=sqlite:////data/app.db`. Keep the database on storage with normal
+local filesystem locking semantics. Network filesystems, a database file shared
+between hosts, PostgreSQL, and other database servers are not supported.
+
+SilentRelay enables SQLite foreign-key enforcement and WAL mode. Operate
+exactly one scheduler instance. SQLite permits multiple readers, but write
+transactions are serialized; a slow SMTP operation can temporarily delay an
+unrelated writer until the configured SQLite timeout. Backups therefore stop
+the web and scheduler briefly so the database and WAL state are captured
+consistently.
+
+`DATABASE_URL` is configurable to select the SQLite file location, not the
+database product. Unsupported URLs are rejected during configuration loading.
+SQLAlchemy and Alembic remain in use so application code and schema migrations
+have clear boundaries. A future PostgreSQL decision would require explicit
+driver, migration, concurrency, backup, restore, and deployment work; no such
+support is implied today.
+
 ## Before you begin
 
 You need:
