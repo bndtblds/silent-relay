@@ -25,15 +25,15 @@ def test_functional_workflow_runs_the_complete_locked_suite():
     assert workflow.index("scripts/check_version.py") < workflow.index("uv run pytest")
 
 
-def test_functional_workflow_publishes_branch_coverage_without_arbitrary_gate():
+def test_functional_workflow_enforces_justified_branch_coverage_floor():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
     assert "--cov-branch" in workflow
+    assert "--cov-fail-under=82" in workflow
     assert "--cov-report=xml:coverage/coverage.xml" in workflow
     assert "--cov-report=html:coverage/html" in workflow
     assert "name: coverage-${{ github.sha }}" in workflow
     assert "commit=%s\\nrun_id=%s\\nrun_number=%s\\n" in workflow
-    assert "fail-under" not in workflow
 
 
 def test_functional_workflow_actions_are_pinned_to_full_commits():
