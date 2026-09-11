@@ -37,6 +37,10 @@ from app.system_config import (
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory="app/templates")
 ADMIN_ACCOUNTS_PAGE_SIZE = 50
+DUMMY_ADMIN_PASSWORD_HASH = (
+    "$argon2id$v=19$m=65536,t=3,p=4$ZsncV1MJA5atM/QvSSflYg$"
+    "oFOkTGOu688l5yfkY9za8HKPqEHAiET9t4MBm5F1j60"
+)
 
 
 def admin_context(request: Request, settings: Settings, **values: object) -> dict[str, object]:
@@ -77,7 +81,12 @@ def login_form(request: Request, settings: Settings = Depends(get_settings)):
 
 @router.post("/login")
 def login(request: Request, username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    if username != settings.admin_username or not verify_password(settings.admin_password_hash, password):
+    username_matches = username == settings.admin_username
+    password_hash = (
+        settings.admin_password_hash if username_matches else DUMMY_ADMIN_PASSWORD_HASH
+    )
+    password_valid = verify_password(password_hash, password)
+    if not username_matches or not password_valid:
         raise HTTPException(401, translate(
             browser_language(request, settings.default_language), "error.login"
         ))
