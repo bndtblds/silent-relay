@@ -130,6 +130,13 @@ HSTS_ENABLED=false
 SECURE_COOKIES=false
 ```
 
+SQLite is the only supported development and production database.
+`DATABASE_URL` selects a SQLite file (or an in-memory SQLite database in
+tests); PostgreSQL and other SQLAlchemy database URLs are rejected. Keep
+database-independent domain and query code portable when the alternatives are
+equivalent, but do not add database abstraction layers or PostgreSQL-specific
+implementations without a concrete support decision.
+
 Generate the field-encryption key and four independent secrets:
 
 ```sh

@@ -156,10 +156,17 @@ Manual configuration and advanced deployment options are documented in
 
 ## Day-to-day operation
 
-Run one `web` service and exactly one `scheduler` when using the default SQLite
-database. The scheduler sends queued notifications and performs recurring
-cleanup. Newly submitted confidential messages remain queued for ten minutes
-by default. During that time, the trusted person sees that the message has not
+SQLite is the only supported database. SilentRelay configures it in WAL mode
+and requires the database to remain on the persistent local application volume;
+network filesystems and multiple hosts sharing one database file are not
+supported. `DATABASE_URL` must be a SQLite URL. SQLAlchemy and Alembic remain
+the database access and migration tools, but PostgreSQL and other database
+servers are not currently tested or supported.
+
+Run one `web` service and exactly one `scheduler`. The scheduler sends queued
+notifications and performs recurring cleanup. Newly submitted confidential
+messages remain queued for ten minutes by default. During that time, the
+trusted person sees that the message has not
 yet been sent and can cancel it through the same personal access. The technical
 administrator can configure a waiting period from 0 to 1,440 minutes; changes
 apply only to messages submitted afterwards.

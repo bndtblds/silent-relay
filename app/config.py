@@ -60,6 +60,13 @@ class Settings(BaseSettings):
             raise ValueError("ENTITLEMENT_PROVIDER must not be empty")
         return provider
 
+    @field_validator("database_url")
+    @classmethod
+    def validate_database_url(cls, value: str) -> str:
+        if not value.startswith(("sqlite:///", "sqlite+pysqlite:///")):
+            raise ValueError("DATABASE_URL must use SQLite")
+        return value
+
     @field_validator("field_encryption_key")
     @classmethod
     def validate_field_key(cls, value: str) -> str:
@@ -96,11 +103,12 @@ class Settings(BaseSettings):
         return self
 
     def ensure_database_directory(self) -> None:
-        prefix = "sqlite:///"
-        if self.database_url.startswith(prefix):
-            path = self.database_url.removeprefix(prefix)
-            if path != ":memory:":
-                Path(path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
+        for prefix in ("sqlite:///", "sqlite+pysqlite:///"):
+            if self.database_url.startswith(prefix):
+                path = self.database_url.removeprefix(prefix)
+                if path != ":memory:":
+                    Path(path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
+                break
 
 
 @lru_cache
