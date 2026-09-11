@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -36,6 +36,7 @@ from app.system_config import (
 
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory="app/templates")
+ADMIN_ACCOUNTS_PAGE_SIZE = 50
 
 
 def admin_context(request: Request, settings: Settings, **values: object) -> dict[str, object]:
@@ -103,15 +104,44 @@ def logout(
 
 
 @router.get("/accounts", response_class=HTMLResponse)
-def accounts(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
+def accounts(
+    request: Request,
+    page: int = Query(1, ge=1),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
     admin_session(request, db, settings)
     language = browser_language(request, settings.default_language)
+    account_count = db.scalar(select(func.count(Account.id))) or 0
+    total_pages = max(
+        1,
+        (account_count + ADMIN_ACCOUNTS_PAGE_SIZE - 1) // ADMIN_ACCOUNTS_PAGE_SIZE,
+    )
+    if page > total_pages:
+        return RedirectResponse(f"/admin/accounts?page={total_pages}", 303)
+
+    failure_counts = (
+        select(
+            Notification.account_id.label("account_id"),
+            func.count(Delivery.id).label("failures"),
+        )
+        .join(Delivery, Delivery.notification_id == Notification.id)
+        .where(Delivery.status == DeliveryStatus.permanent_failure)
+        .group_by(Notification.account_id)
+        .subquery()
+    )
+    account_rows = db.execute(
+        select(
+            Account,
+            func.coalesce(failure_counts.c.failures, 0),
+        )
+        .outerjoin(failure_counts, failure_counts.c.account_id == Account.id)
+        .order_by(Account.created_at.desc(), Account.id.asc())
+        .limit(ADMIN_ACCOUNTS_PAGE_SIZE)
+        .offset((page - 1) * ADMIN_ACCOUNTS_PAGE_SIZE)
+    ).all()
     rows = []
-    for account in db.scalars(select(Account)):
-        failures = db.scalar(select(func.count()).select_from(Delivery).where(
-            Delivery.status == DeliveryStatus.permanent_failure,
-            Delivery.notification_id.in_(select(Notification.id).where(Notification.account_id == account.id))
-        ))
+    for account, failures in account_rows:
         rows.append({
             "id": account.id,
             "status": translate(language, f"status.{account.status.value}"),
@@ -126,6 +156,8 @@ def accounts(request: Request, db: Session = Depends(get_db), settings: Settings
         admin_context(
             request, settings,
             accounts=rows,
+            page=page,
+            total_pages=total_pages,
             admin_section="accounts",
             public_content_complete=public_site_content_is_complete(public_content),
             csrf=request.cookies.get("sr_admin_csrf", ""),

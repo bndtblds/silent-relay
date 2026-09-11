@@ -23,6 +23,7 @@ from app.models import (
     ContactReview,
     ContactReviewToken,
     Delivery,
+    DeliveryStatus,
     Notification,
     NotificationRecipient,
     NotificationStatus,
@@ -286,6 +287,91 @@ def test_complete_admin_area_uses_browser_language():
         assert "System settings" in public.text
         assert 'href="/admin/public-content" aria-current="page"' in public.text
         assert 'name="language_code" value="en"' in public.text
+
+
+def test_admin_account_pagination_and_empty_database():
+    settings = get_settings()
+    settings.admin_password_hash = hash_password("admin demo password")
+    with TestClient(app) as client:
+        client.post(
+            "/admin/login",
+            data={
+                "username": settings.admin_username,
+                "password": "admin demo password",
+            },
+        )
+
+        empty = client.get("/admin/accounts?page=1")
+        assert empty.status_code == 200
+        assert "Seite 1 von 1" in empty.text
+        assert "/admin/accounts?page=2" not in empty.text
+
+        empty_beyond_last = client.get(
+            "/admin/accounts?page=2", follow_redirects=False
+        )
+        assert empty_beyond_last.status_code == 303
+        assert empty_beyond_last.headers["location"] == "/admin/accounts?page=1"
+        assert client.get("/admin/accounts?page=0").status_code == 422
+
+        created_at = utc_now()
+        with Session(engine) as db:
+            accounts = [
+                Account(
+                    id=f"account-{number:02d}",
+                    status=AccountStatus.active,
+                    created_at=created_at - timedelta(minutes=number),
+                )
+                for number in range(51)
+            ]
+            db.add_all(accounts)
+            for number in range(2):
+                notification = Notification(
+                    account_id=accounts[0].id,
+                    deduplication_key=f"admin-pagination-{number}",
+                )
+                db.add(notification)
+                db.flush()
+                db.add(Delivery(
+                    notification_id=notification.id,
+                    provider="email",
+                    status=DeliveryStatus.permanent_failure,
+                ))
+            db.commit()
+
+        first_page = client.get("/admin/accounts?page=1")
+        assert first_page.status_code == 200
+        assert "account-00" in first_page.text
+        assert "account-49" in first_page.text
+        assert "account-50" not in first_page.text
+        assert "Seite 1 von 2" in first_page.text
+        assert 'href="/admin/accounts?page=2">Weiter</a>' in first_page.text
+        first_account_row = re.search(
+            r"<tr><td><code>account-00</code>(.*?)</tr>", first_page.text, re.DOTALL
+        )
+        second_account_row = re.search(
+            r"<tr><td><code>account-01</code>(.*?)</tr>", first_page.text, re.DOTALL
+        )
+        assert first_account_row and "<td>2</td>" in first_account_row.group(1)
+        assert second_account_row and "<td>0</td>" in second_account_row.group(1)
+
+        english_page = client.get(
+            "/admin/accounts?page=1", headers={"Accept-Language": "en"}
+        )
+        assert "Page 1 of 2" in english_page.text
+        assert 'href="/admin/accounts?page=2">Next</a>' in english_page.text
+
+        second_page = client.get("/admin/accounts?page=2")
+        assert second_page.status_code == 200
+        assert "account-00" not in second_page.text
+        assert "account-50" in second_page.text
+        assert "Seite 2 von 2" in second_page.text
+        assert 'href="/admin/accounts?page=1">Zurück</a>' in second_page.text
+
+        beyond_last = client.get(
+            "/admin/accounts?page=3", follow_redirects=False
+        )
+        assert beyond_last.status_code == 303
+        assert beyond_last.headers["location"] == "/admin/accounts?page=2"
 
 
 def test_admin_lock_revokes_existing_account_sessions_and_blocks_partner_access():

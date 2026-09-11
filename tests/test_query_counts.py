@@ -15,6 +15,7 @@ from app.models import (
     PartnerCredential,
     TrustedPerson,
 )
+from app.routers import admin
 from app.routers.web import dashboard, inbox_rows
 from app.time import utc_now
 
@@ -93,6 +94,46 @@ def dashboard_request() -> Request:
         "app": app,
         "router": app.router,
     })
+
+
+def admin_accounts_request() -> Request:
+    return Request({
+        "type": "http",
+        "method": "GET",
+        "path": "/admin/accounts",
+        "root_path": "",
+        "scheme": "http",
+        "query_string": b"page=1",
+        "headers": [],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+        "app": app,
+        "router": app.router,
+    })
+
+
+def test_admin_account_query_count_does_not_grow_with_accounts(
+    db, settings, monkeypatch
+):
+    monkeypatch.setattr(admin, "admin_session", lambda *_args: None)
+    db.add_all(Account(status=AccountStatus.active) for _ in range(2))
+    db.commit()
+
+    def measure() -> int:
+        db.expire_all()
+        return count_queries(
+            db,
+            lambda: admin.accounts(admin_accounts_request(), 1, db, settings),
+        )
+
+    two_accounts = measure()
+    db.add_all(Account(status=AccountStatus.active) for _ in range(48))
+    db.commit()
+    fifty_accounts = measure()
+
+    assert abs(fifty_accounts - two_accounts) <= 1, (
+        f"admin account queries grew from {two_accounts} to {fifty_accounts}"
+    )
 
 
 def test_dashboard_query_count_does_not_grow_with_partners(db, settings, cipher):
