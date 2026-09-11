@@ -255,6 +255,63 @@ def test_unsupported_browser_language_uses_english_fallback():
     assert "Admin sign-in" in admin_login.text
 
 
+def test_unknown_admin_username_uses_dummy_password_hash(monkeypatch):
+    settings = get_settings()
+    settings.admin_password_hash = hash_password("admin demo password")
+    password_checks = []
+
+    def record_password_check(stored_hash, password):
+        password_checks.append((stored_hash, password))
+        return False
+
+    monkeypatch.setattr(admin, "verify_password", record_password_check)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/admin/login",
+            data={"username": "unknown-admin", "password": "attempted password"},
+        )
+
+    assert response.status_code == 401
+    assert password_checks == [
+        (admin.DUMMY_ADMIN_PASSWORD_HASH, "attempted password")
+    ]
+
+
+def test_admin_login_rejects_credentials_neutrally_and_creates_session_on_success():
+    settings = get_settings()
+    settings.admin_password_hash = hash_password("admin demo password")
+
+    with TestClient(app) as client:
+        unknown_username = client.post(
+            "/admin/login",
+            data={"username": "unknown-admin", "password": "wrong password"},
+        )
+        wrong_password = client.post(
+            "/admin/login",
+            data={"username": settings.admin_username, "password": "wrong password"},
+        )
+
+        assert unknown_username.status_code == wrong_password.status_code == 401
+        assert unknown_username.content == wrong_password.content
+        assert "sr_admin" not in client.cookies
+        assert "sr_admin_csrf" not in client.cookies
+
+        successful = client.post(
+            "/admin/login",
+            data={
+                "username": settings.admin_username,
+                "password": "admin demo password",
+            },
+            follow_redirects=False,
+        )
+
+    assert successful.status_code == 303
+    assert successful.headers["location"] == "/admin/accounts"
+    assert successful.cookies.get("sr_admin")
+    assert successful.cookies.get("sr_admin_csrf")
+
+
 def test_complete_admin_area_uses_browser_language():
     settings = get_settings()
     settings.admin_password_hash = hash_password("admin demo password")
