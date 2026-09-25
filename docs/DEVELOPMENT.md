@@ -388,9 +388,11 @@ production configuration.
 
 ## Before committing
 
-Advance the canonical version in `app/version.py` once per pull request. Keep
-that target version unchanged for later commits in the same pull request and
-refresh `uv.lock` if needed. Validate it against `origin/main`:
+Advance the canonical version in `app/version.py` once per pull request that
+contains product-relevant changes. A change limited to the explicitly allowed
+documentation paths may retain the current version. Keep a target version
+unchanged for later commits in the same pull request and refresh `uv.lock` if
+needed. Validate it against `origin/main`:
 
 ```sh
 uv run python scripts/check_version.py
