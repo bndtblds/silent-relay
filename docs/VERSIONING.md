@@ -10,12 +10,18 @@ The Python package metadata is generated from it. Generated metadata such as
 `uv.lock` must be refreshed after changing the canonical version; it is not an
 independent version source.
 
-The version on `main` identifies the current SilentRelay release. Every pull
-request merged into `main` advances it exactly once, using:
+The version on `main` identifies the current SilentRelay release. A pull
+request with product-relevant changes advances it exactly once, using:
 
-- `PATCH` for backward-compatible fixes and documentation-only changes;
+- `PATCH` for backward-compatible fixes;
 - `MINOR` for backward-compatible features; and
 - `MAJOR` for incompatible public behavior or contracts.
+
+A pull request may retain the application version only when every changed path
+is explicitly recognized as non-product material: `README.md`, `SECURITY.md`,
+`CONTRIBUTING.md`, or a file below `docs/`. Mixed changes require a version
+advance. Workflows and all other paths remain product-relevant for this check,
+and a version regression is never accepted.
 
 Commits within one pull request may share its target version. Fixing or
 refining that pull request therefore does not consume more versions. The
@@ -29,11 +35,12 @@ Run the repository check before committing:
 uv run python scripts/check_version.py
 ```
 
-The check validates Semantic Versioning and compares the pull request version
-with its target branch. It must be newer once, regardless of how many commits
-the pull request contains. On a push to `main`, CI compares the squash commit
-with its first parent. A `v<version>` tag must additionally match the canonical
-version exactly and be newer than every other release tag.
+The check validates Semantic Versioning, changed paths, and the pull request
+version against its target branch. A product-relevant pull request must advance
+the version once, regardless of how many commits it contains. On a push to
+`main`, CI compares the squash commit with its first parent. A `v<version>` tag
+must additionally match the canonical version exactly and be newer than every
+other release tag.
 
 ## Releases
 
