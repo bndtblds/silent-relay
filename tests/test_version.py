@@ -13,6 +13,7 @@ from scripts.check_version import (
     is_newer,
     parse_version,
     validate_release_tags,
+    validate_version_transition,
     version_from_tag,
 )
 
@@ -25,14 +26,48 @@ def test_project_uses_canonical_version_source():
 
     assert 'dynamic = ["version"]' in pyproject
     assert 'path = "app/version.py"' in pyproject
-    assert __version__ == "1.5.3"
+    assert __version__ == "1.5.4"
 
 
 def test_pull_request_version_advances_from_main_once():
     current, previous = check_repository_version()
 
     assert current == __version__
-    assert previous == "1.5.2"
+    assert previous == "1.5.3"
+
+
+@pytest.mark.parametrize(
+    "changed_paths",
+    [
+        ["README.md"],
+        ["docs/VERSIONING.md"],
+        ["SECURITY.md", "CONTRIBUTING.md"],
+    ],
+)
+def test_non_product_changes_may_keep_the_current_version(changed_paths):
+    validate_version_transition("1.5.3", "1.5.3", changed_paths)
+
+
+@pytest.mark.parametrize(
+    "changed_paths",
+    [
+        ["app/main.py"],
+        ["README.md", "app/main.py"],
+        [".github/workflows/tests.yml"],
+    ],
+)
+def test_product_relevant_changes_require_a_newer_version(changed_paths):
+    with pytest.raises(VersionCheckError, match="must be newer"):
+        validate_version_transition("1.5.3", "1.5.3", changed_paths)
+
+
+def test_product_relevant_change_accepts_a_newer_version():
+    validate_version_transition("1.5.4", "1.5.3", ["app/main.py"])
+
+
+def test_version_regression_is_rejected_even_for_documentation():
+    with pytest.raises(VersionCheckError, match="must not be older"):
+        validate_version_transition("1.5.2", "1.5.3", ["README.md"])
 
 
 @pytest.mark.parametrize("value", ["1.0", "01.0.0", "1.0.0-01", "v1.0.0"])

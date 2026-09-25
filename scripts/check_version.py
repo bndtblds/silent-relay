@@ -16,6 +16,14 @@ SEMVER_PATTERN = (
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
 )
 VERSION_PATTERN = re.compile(rf'(?m)^__version__\s*=\s*"({SEMVER_PATTERN})"\s*$')
+NON_PRODUCT_FILES = frozenset(
+    {
+        "CONTRIBUTING.md",
+        "README.md",
+        "SECURITY.md",
+    }
+)
+NON_PRODUCT_DIRECTORIES = ("docs/",)
 
 
 class VersionCheckError(RuntimeError):
@@ -69,6 +77,31 @@ def is_newer(current: SemVer, previous: SemVer) -> bool:
     if current_core != previous_core:
         return current_core > previous_core
     return _compare_prerelease(current.prerelease, previous.prerelease) > 0
+
+
+def is_non_product_path(path: str) -> bool:
+    return path in NON_PRODUCT_FILES or path.startswith(NON_PRODUCT_DIRECTORIES)
+
+
+def validate_version_transition(
+    current_value: str,
+    previous_value: str,
+    changed_paths: list[str],
+) -> None:
+    current = parse_version(current_value)
+    previous = parse_version(previous_value)
+    if is_newer(current, previous):
+        return
+    if is_newer(previous, current):
+        raise VersionCheckError(
+            f"Version {current_value} must not be older than {previous_value}"
+        )
+    product_paths = [path for path in changed_paths if not is_non_product_path(path)]
+    if product_paths:
+        raise VersionCheckError(
+            f"Version {current_value} must be newer than {previous_value}; "
+            f"product-relevant changes include {product_paths[0]}"
+        )
 
 
 def version_from_tag(tag: str) -> str:
@@ -131,6 +164,18 @@ def _version_at(reference: str) -> str:
     return version_from_source(result.stdout)
 
 
+def _changed_paths(reference: str) -> list[str]:
+    result = _git(
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "--diff-filter=ACDMRTUXB",
+        reference,
+        "--",
+    )
+    return [path for path in result.stdout.splitlines() if path]
+
+
 def _comparison_reference() -> str:
     configured = os.environ.get("VERSION_BASE_REF")
     if configured:
@@ -144,11 +189,11 @@ def check_repository_version(reference: str | None = None) -> tuple[str, str]:
     current_value = version_from_source(VERSION_FILE.read_text(encoding="utf-8"))
     comparison_reference = reference or _comparison_reference()
     previous_value = _version_at(comparison_reference)
-    if not is_newer(parse_version(current_value), parse_version(previous_value)):
-        raise VersionCheckError(
-            f"Version {current_value} must be newer than {previous_value} "
-            f"({comparison_reference})"
-        )
+    validate_version_transition(
+        current_value,
+        previous_value,
+        _changed_paths(comparison_reference),
+    )
     tags_at_head = _git("tag", "--points-at", "HEAD").stdout.splitlines()
     repository_tags = _git("tag", "--list", "v*").stdout.splitlines()
     validate_release_tags(current_value, tags_at_head, repository_tags)
