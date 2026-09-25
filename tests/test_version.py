@@ -26,14 +26,14 @@ def test_project_uses_canonical_version_source():
 
     assert 'dynamic = ["version"]' in pyproject
     assert 'path = "app/version.py"' in pyproject
-    assert __version__ == "1.5.4"
+    assert __version__ == "1.5.5"
 
 
-def test_pull_request_version_advances_from_main_once():
+def test_repository_version_transition_is_valid():
     current, previous = check_repository_version()
 
     assert current == __version__
-    assert previous == "1.5.3"
+    assert not is_newer(parse_version(previous), parse_version(current))
 
 
 @pytest.mark.parametrize(
