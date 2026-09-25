@@ -1,8 +1,12 @@
 # SilentRelay
 
-SilentRelay is a self-hosted notification service for small, trusted groups.
-It lets a trusted person send a confidential message without seeing who will
-receive it or which contact details are stored.
+[![Tests](https://github.com/bndtblds/silent-relay/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/bndtblds/silent-relay/actions/workflows/tests.yml)
+[![Security](https://github.com/bndtblds/silent-relay/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/bndtblds/silent-relay/actions/workflows/security.yml)
+
+SilentRelay is a self-hosted emergency notification service for situations where
+you may no longer be able to contact the people important to you yourself. A
+trusted person can trigger a prepared notification without learning who your
+recipients are or how to contact them.
 
 The account owner decides who belongs to the group, which contact methods are
 used, and which trusted persons may send messages. SilentRelay fixes the
